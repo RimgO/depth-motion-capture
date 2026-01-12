@@ -1,0 +1,223 @@
+import React, { useState, useEffect } from 'react';
+import MotionCapturer from './components/MotionCapturer';
+import { Activity, Brain, User, Upload, Settings, Info, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+function App() {
+  const [vrmUrl, setVrmUrl] = useState(null);
+  const [videoFile, setVideoFile] = useState(null);
+  const [detectedAction, setDetectedAction] = useState("Observing...");
+  const [actionHistory, setActionHistory] = useState([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(true);
+
+  // Mock AI Agent Labeling logic
+  const handleActionDetected = (landmarks) => {
+    const rightHand = landmarks[16];
+    const leftHand = landmarks[15];
+    const rightShoulder = landmarks[12];
+    const leftShoulder = landmarks[11];
+    const head = landmarks[0];
+    const hips = landmarks[24];
+
+    let label = "Standing Idle";
+
+    // Heuristics for detection
+    const rightUp = rightHand.y < head.y;
+    const leftUp = leftHand.y < head.y;
+    const tPose = Math.abs(rightHand.y - rightShoulder.y) < 0.1 && Math.abs(leftHand.y - leftShoulder.y) < 0.1;
+    const handsNearFace = Math.abs(rightHand.x - head.x) < 0.1 && Math.abs(rightHand.y - head.y) < 0.2;
+
+    if (rightUp && leftUp) {
+      label = "Both Hands Raised";
+    } else if (tPose) {
+      label = "T-Pose Detected";
+    } else if (rightUp) {
+      label = "Right Hand Raised";
+    } else if (leftUp) {
+      label = "Left Hand Raised";
+    } else if (handsNearFace) {
+      label = "Hand Near Face";
+    } else if (hips.y > 0.8) {
+      label = "Squatting / Low Guard";
+    }
+
+    if (label !== detectedAction) {
+      setDetectedAction(label);
+      setActionHistory(prev => [
+        { id: Date.now(), time: new Date().toLocaleTimeString().split(' ')[0], action: label },
+        ...prev.slice(0, 9)
+      ]);
+    }
+  };
+
+  const handleVrmUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setVrmUrl(url);
+    }
+  };
+
+  const handleVideoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setVideoFile(url);
+    }
+  };
+
+  const [isMediaExpanded, setIsMediaExpanded] = useState(true);
+  const [isAiExpanded, setIsAiExpanded] = useState(true);
+
+  return (
+    <div className="flex h-screen w-screen bg-[#0a0a0c] text-white overflow-hidden">
+      {/* Sidebar */}
+      <aside className="w-80 h-full glass-panel m-4 border-white/5 flex flex-col p-6 gap-6 z-10 overflow-hidden">
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+            <Activity className="text-white" size={24} />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">
+            Depth<span className="text-cyan-400">Capture</span>
+          </h1>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4">
+          {/* Source Media Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <button
+              onClick={() => setIsMediaExpanded(!isMediaExpanded)}
+              className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
+            >
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2">
+                <Upload size={14} /> Source Media
+              </h2>
+              <motion.div animate={{ rotate: isMediaExpanded ? 180 : 0 }}>
+                <Settings size={14} className="text-white/20" />
+              </motion.div>
+            </button>
+
+            <motion.div
+              initial={false}
+              animate={{ height: isMediaExpanded ? "auto" : 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-4 pt-0 grid grid-cols-1 gap-3">
+                <button
+                  onClick={() => setVideoFile(null)}
+                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${!videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
+                >
+                  <Activity className={`${!videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${!videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Webcam Feed</span>
+                </button>
+
+                <label className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all cursor-pointer group ${videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}>
+                  <Upload className={`${videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Upload Video</span>
+                  <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
+                </label>
+
+                <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-white/10 rounded-xl hover:border-cyan-500/50 hover:bg-white/5 transition-all cursor-pointer group">
+                  <User className="text-white/20 group-hover:text-cyan-400 mb-1" size={16} />
+                  <span className="text-[10px] text-white/40 group-hover:text-white/60">Upload VRM</span>
+                  <input type="file" accept=".vrm" className="hidden" onChange={handleVrmUpload} />
+                </label>
+              </div>
+            </motion.div>
+          </section>
+
+          {/* AI Monitoring Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <button
+              onClick={() => setIsAiExpanded(!isAiExpanded)}
+              className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
+            >
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2">
+                <Brain size={14} /> AI Monitoring
+              </h2>
+              <motion.div animate={{ rotate: isAiExpanded ? 180 : 0 }}>
+                <Activity size={14} className="text-white/20" />
+              </motion.div>
+            </button>
+
+            <motion.div
+              initial={false}
+              animate={{ height: isAiExpanded ? "auto" : 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-4 pt-0">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs text-cyan-400 font-medium flex items-center gap-1">
+                    <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                    Live Analysis
+                  </span>
+                </div>
+
+                <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider mb-2">Current Intent</div>
+                <div className="text-sm font-bold text-white mb-4 bg-white/5 px-3 py-2 rounded-lg border border-white/5">
+                  {detectedAction}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider">Analysis Log</div>
+                  <div className="max-h-40 overflow-y-auto no-scrollbar space-y-2">
+                    <AnimatePresence initial={false}>
+                      {actionHistory.map((item) => (
+                        <motion.div
+                          key={item.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="flex items-start gap-2 text-[11px] py-1 border-b border-white/5 last:border-0"
+                        >
+                          <CheckCircle2 size={10} className="text-cyan-500 mt-1" />
+                          <div className="flex-1 flex justify-between gap-2">
+                            <span className="text-white/80">{item.action}</span>
+                            <span className="text-[9px] text-white/30 whitespace-nowrap">{item.time}</span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </section>
+        </div>
+
+        <div className="mt-auto shrink-0 space-y-3">
+          <div className="bg-gradient-to-tr from-cyan-500/10 to-blue-500/10 rounded-2xl p-4 border border-cyan-500/20">
+            <div className="flex items-center gap-2 mb-1">
+              <Info size={14} className="text-cyan-400" />
+              <span className="text-xs font-semibold">Ready to Sync</span>
+            </div>
+            <p className="text-[10px] text-white/40 leading-relaxed">
+              Mediapipe pose engine is active.
+            </p>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Viewport */}
+      <main className="flex-1 relative">
+        <MotionCapturer
+          vrmUrl={vrmUrl}
+          videoFile={videoFile}
+          onActionDetected={handleActionDetected}
+          onClearVideo={() => setVideoFile(null)}
+        />
+
+        {/* HUD Overlay */}
+        <div className="absolute top-6 right-6 flex gap-4">
+          <button className="glass-panel text-white/80 p-3 hover:text-white">
+            <Settings size={20} />
+          </button>
+          <button className="bg-cyan-500 text-black font-bold px-6 py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-cyan-500/30">
+            <Activity size={18} /> Record Motion
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default App;
