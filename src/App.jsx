@@ -9,6 +9,7 @@ function App() {
   const [detectedAction, setDetectedAction] = useState("Observing...");
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
 
   // Mock AI Agent Labeling logic
   const handleActionDetected = (landmarks) => {
@@ -122,6 +123,13 @@ function App() {
                   <span className="text-[10px] text-white/40 group-hover:text-white/60">Upload VRM</span>
                   <input type="file" accept=".vrm" className="hidden" onChange={handleVrmUpload} />
                 </label>
+
+                <button
+                  onClick={() => setVrmUrl("https://cdn.jsdelivr.net/gh/pixiv/three-vrm@master/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm")}
+                  className="flex flex-col items-center justify-center w-full h-10 border border-white/10 rounded-xl hover:bg-white/5 transition-all group"
+                >
+                  <span className="text-[10px] text-white/40 group-hover:text-cyan-400">Load Test Avatar</span>
+                </button>
               </div>
             </motion.div>
           </section>
@@ -204,6 +212,7 @@ function App() {
           videoFile={videoFile}
           onActionDetected={handleActionDetected}
           onClearVideo={() => setVideoFile(null)}
+          isRecording={isRecording}
         />
 
         {/* HUD Overlay */}
@@ -211,8 +220,14 @@ function App() {
           <button className="glass-panel text-white/80 p-3 hover:text-white">
             <Settings size={20} />
           </button>
-          <button className="bg-cyan-500 text-black font-bold px-6 py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-cyan-500/30">
-            <Activity size={18} /> Record Motion
+          <button
+            onClick={() => setIsRecording(!isRecording)}
+            className={`font-bold px-6 py-2 rounded-xl flex items-center gap-2 shadow-lg transition-all ${isRecording
+                ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
+                : 'bg-cyan-500 text-black shadow-cyan-500/30'
+              }`}
+          >
+            <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Record Motion'}
           </button>
         </div>
       </main>

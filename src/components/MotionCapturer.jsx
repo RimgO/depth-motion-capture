@@ -60,7 +60,7 @@ if (typeof window !== 'undefined') {
     window.addEventListener('error', handleNullError);
 }
 
-const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo }) => {
+const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording }) => {
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
     const videoRef = useRef(null);
@@ -72,12 +72,13 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo }) =
     const poseRef = useRef(null);
     const cameraRef = useRef(null);
     const rendererRef = useRef(null);
-    const propsRef = useRef({ onActionDetected });
+    const propsRef = useRef({ onActionDetected, isRecording });
+    const recordedDataRef = useRef([]);
 
     // Keep props fresh for the results handler
     useEffect(() => {
-        propsRef.current = { onActionDetected };
-    }, [onActionDetected]);
+        propsRef.current = { onActionDetected, isRecording };
+    }, [onActionDetected, isRecording]);
 
     const [loading, setLoading] = useState(false);
     const [hasVrm, setHasVrm] = useState(false);
@@ -286,6 +287,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo }) =
                     if (riggedPose) {
                         animateVRM(vrm, riggedPose);
                         vrm._lastRigTime = Date.now();
+
+                        // Record Data
+                        if (propsRef.current.isRecording) {
+                            recordedDataRef.current.push({
+                                t: Date.now(),
+                                pose: riggedPose
+                            });
+                        }
                     }
                 } catch (e) {
                     console.error("Kalidokit Solve Error:", e);
@@ -440,6 +449,29 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo }) =
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [playbackRate]); // Re-bind if necessary, though togglePlayback/stepFrame use refs or current state
+
+    // Recording Control Effect
+    useEffect(() => {
+        if (!isRecording && recordedDataRef.current.length > 0) {
+            // Stop recording triggered -> Download
+            const dataStr = JSON.stringify(recordedDataRef.current, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `motion-capture-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            recordedDataRef.current = []; // Clear buffer
+            console.log("Motion data downloaded");
+        } else if (isRecording) {
+            // Start recording
+            recordedDataRef.current = [];
+            console.log("Recording started...");
+        }
+    }, [isRecording]);
 
 
 
