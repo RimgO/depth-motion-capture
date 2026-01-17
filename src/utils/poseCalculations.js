@@ -209,14 +209,16 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
 }
 
 /**
- * Merge arm rotations with body rotations
+ * Merge arm rotations with body rotations and hand rotations
  * @param {Object} armPose - Arm rotations from calculateArmRotations
  * @param {Object} bodyPose - Body rotations from calculateBodyRotations
+ * @param {Object} handPose - Hand rotations from calculateHandRotations (optional)
  * @returns {Object} Complete rigged pose
  */
-export function mergeRiggedPose(armPose, bodyPose) {
+export function mergeRiggedPose(armPose, bodyPose, handPose = {}) {
     return {
         ...bodyPose,
-        ...armPose
+        ...armPose,
+        ...handPose
     };
 }

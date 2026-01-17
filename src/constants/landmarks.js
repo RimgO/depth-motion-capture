@@ -56,6 +56,87 @@ export const POSE_LANDMARKS = {
 };
 
 /**
+ * MediaPipe Hand Landmark Indices (21 points per hand)
+ * Reference: https://google.github.io/mediapipe/solutions/hands.html
+ */
+export const HAND_LANDMARKS = {
+    // Wrist
+    WRIST: 0,
+    
+    // Thumb (4 joints)
+    THUMB_CMC: 1,        // Carpometacarpal
+    THUMB_MCP: 2,        // Metacarpophalangeal
+    THUMB_IP: 3,         // Interphalangeal
+    THUMB_TIP: 4,
+    
+    // Index finger (4 joints)
+    INDEX_FINGER_MCP: 5,  // Metacarpophalangeal
+    INDEX_FINGER_PIP: 6,  // Proximal interphalangeal
+    INDEX_FINGER_DIP: 7,  // Distal interphalangeal
+    INDEX_FINGER_TIP: 8,
+    
+    // Middle finger (4 joints)
+    MIDDLE_FINGER_MCP: 9,
+    MIDDLE_FINGER_PIP: 10,
+    MIDDLE_FINGER_DIP: 11,
+    MIDDLE_FINGER_TIP: 12,
+    
+    // Ring finger (4 joints)
+    RING_FINGER_MCP: 13,
+    RING_FINGER_PIP: 14,
+    RING_FINGER_DIP: 15,
+    RING_FINGER_TIP: 16,
+    
+    // Pinky finger (4 joints)
+    PINKY_MCP: 17,
+    PINKY_PIP: 18,
+    PINKY_DIP: 19,
+    PINKY_TIP: 20
+};
+
+/**
+ * VRM Hand Bone Names
+ * Maps to VRM Humanoid bone structure
+ */
+export const VRM_HAND_BONES = {
+    // Left hand bones
+    LEFT_HAND: 'leftHand',
+    LEFT_THUMB_PROXIMAL: 'leftThumbProximal',
+    LEFT_THUMB_INTERMEDIATE: 'leftThumbIntermediate',
+    LEFT_THUMB_DISTAL: 'leftThumbDistal',
+    LEFT_INDEX_PROXIMAL: 'leftIndexProximal',
+    LEFT_INDEX_INTERMEDIATE: 'leftIndexIntermediate',
+    LEFT_INDEX_DISTAL: 'leftIndexDistal',
+    LEFT_MIDDLE_PROXIMAL: 'leftMiddleProximal',
+    LEFT_MIDDLE_INTERMEDIATE: 'leftMiddleIntermediate',
+    LEFT_MIDDLE_DISTAL: 'leftMiddleDistal',
+    LEFT_RING_PROXIMAL: 'leftRingProximal',
+    LEFT_RING_INTERMEDIATE: 'leftRingIntermediate',
+    LEFT_RING_DISTAL: 'leftRingDistal',
+    LEFT_LITTLE_PROXIMAL: 'leftLittleProximal',
+    LEFT_LITTLE_INTERMEDIATE: 'leftLittleIntermediate',
+    LEFT_LITTLE_DISTAL: 'leftLittleDistal',
+    
+    // Right hand bones
+    RIGHT_HAND: 'rightHand',
+    RIGHT_THUMB_PROXIMAL: 'rightThumbProximal',
+    RIGHT_THUMB_INTERMEDIATE: 'rightThumbIntermediate',
+    RIGHT_THUMB_DISTAL: 'rightThumbDistal',
+    RIGHT_INDEX_PROXIMAL: 'rightIndexProximal',
+    RIGHT_INDEX_INTERMEDIATE: 'rightIndexIntermediate',
+    RIGHT_INDEX_DISTAL: 'rightIndexDistal',
+    RIGHT_MIDDLE_PROXIMAL: 'rightMiddleProximal',
+    RIGHT_MIDDLE_INTERMEDIATE: 'rightMiddleIntermediate',
+    RIGHT_MIDDLE_DISTAL: 'rightMiddleDistal',
+    RIGHT_RING_PROXIMAL: 'rightRingProximal',
+    RIGHT_RING_INTERMEDIATE: 'rightRingIntermediate',
+    RIGHT_RING_DISTAL: 'rightRingDistal',
+    RIGHT_LITTLE_PROXIMAL: 'rightLittleProximal',
+    RIGHT_LITTLE_INTERMEDIATE: 'rightLittleIntermediate',
+    RIGHT_LITTLE_DISTAL: 'rightLittleDistal'
+};
+
+/**
  * Timing constants for throttling and debouncing
  */
 export const TIMING = {

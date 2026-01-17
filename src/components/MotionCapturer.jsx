@@ -19,6 +19,7 @@ import {
     mergeRiggedPose 
 } from '../utils/poseCalculations.js';
 import { calculateAllMetrics } from '../utils/metricsCalculator.js';
+import { calculateHandRotations } from '../utils/handCalculations.js';
 
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
@@ -312,6 +313,40 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
         if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
         if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
 
+        // Fingers - Left Hand
+        if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal);
+        if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate);
+        if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal);
+        if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal);
+        if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate);
+        if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal);
+        if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal);
+        if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate);
+        if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal);
+        if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal);
+        if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate);
+        if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal);
+        if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal);
+        if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate);
+        if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal);
+
+        // Fingers - Right Hand
+        if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal);
+        if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate);
+        if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal);
+        if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal);
+        if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate);
+        if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal);
+        if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal);
+        if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate);
+        if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal);
+        if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal);
+        if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate);
+        if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal);
+        if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal);
+        if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate);
+        if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal);
+
         // Legs (Conditional)
         if (captureSettings?.captureLowerBody) {
             if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
@@ -413,8 +448,11 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         const armPose = calculateArmRotations(worldLandmarks);
                         const bodyPose = calculateBodyRotations(worldLandmarks);
                         
-                        // Merge poses
-                        riggedPose = mergeRiggedPose(armPose, bodyPose);
+                        // Calculate hand rotations (finger bones)
+                        const handPose = calculateHandRotations(results);
+                        
+                        // Merge poses (including hand rotations)
+                        riggedPose = mergeRiggedPose(armPose, bodyPose, handPose);
                     }
                     
                     if (riggedPose) {
