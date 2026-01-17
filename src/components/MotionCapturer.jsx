@@ -28,7 +28,7 @@ const getGlobalHolistic = () => {
         holistic.setOptions({
             modelComplexity: 1,
             smoothLandmarks: true,
-            enableSegmentation: false,  // Disable segmentation to reduce overhead
+            enableSegmentation: false,
             smoothSegmentation: false,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5,
@@ -38,6 +38,16 @@ const getGlobalHolistic = () => {
         await holistic.initialize();
 
         holistic.onResults((results) => {
+            // Debug: Check what results we're getting
+            if (Math.random() < 0.05) {
+                console.log('[Holistic onResults]', {
+                    hasPoseLandmarks: !!results.poseLandmarks,
+                    hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
+                    hasLeftHandLandmarks: !!results.leftHandLandmarks,
+                    hasRightHandLandmarks: !!results.rightHandLandmarks
+                });
+            }
+            
             if (activeResultsCallback) {
                 activeResultsCallback(results);
             } else {
@@ -376,9 +386,28 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             const landmarks = results.poseLandmarks;
 
             const vrm = vrmRef.current;
-            if (vrm && vrm.scene && vrm.scene.parent && results.poseWorldLandmarks) {
+            if (vrm && vrm.scene && vrm.scene.parent) {
                 try {
-                    const riggedPose = Kalidokit.Pose.solve(landmarks, results.poseWorldLandmarks, {
+                    // Holistic doesn't always provide poseWorldLandmarks, so we create pseudo-3D from 2D
+                    let worldLandmarks = results.poseWorldLandmarks;
+                    
+                    if (!worldLandmarks && landmarks) {
+                        // Generate pseudo-3D world landmarks from 2D landmarks
+                        // Using visibility as a proxy for depth (z-coordinate)
+                        worldLandmarks = landmarks.map(lm => ({
+                            x: (lm.x - 0.5) * 2, // Normalize to [-1, 1]
+                            y: (0.5 - lm.y) * 2, // Flip Y and normalize
+                            z: (lm.visibility || 0.5) * -0.5, // Use visibility as depth proxy
+                            visibility: lm.visibility
+                        }));
+                    }
+                    
+                    if (!worldLandmarks) {
+                        console.warn('[Kalidokit] No world landmarks available');
+                        return;
+                    }
+                    
+                    const riggedPose = Kalidokit.Pose.solve(landmarks, worldLandmarks, {
                         runtime: "mediapipe",
                         video: videoRef.current,
                         enableSmoothing: true
@@ -386,8 +415,8 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                     if (riggedPose) {
                         // --- Manual Fix for Arm Front/Back (Y-Rotation) ---
                         // Kalidokit sometimes outputs Y=0. We calculate it from Z-depth.
-                        if (results.poseWorldLandmarks) {
-                            const lm = results.poseWorldLandmarks;
+                        if (worldLandmarks && worldLandmarks.length > 14) {
+                            const lm = worldLandmarks;
                             const rShoulder = lm[12], rElbow = lm[14];
                             const lShoulder = lm[11], lElbow = lm[13];
 
@@ -417,7 +446,9 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                                 recordedDataRef.current.push({
                                     t: Date.now(),
                                     input: riggedPose,
-                                    output: finalPose
+                                    output: finalPose,
+                                    rawLandmarks: landmarks,
+                                    worldLandmarks: worldLandmarks
                                 });
                                 // Log every 30 frames to avoid console spam
                                 if (recordedDataRef.current.length % 30 === 1) {
