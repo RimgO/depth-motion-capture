@@ -99,6 +99,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     const lastUiUpdateRef = useRef(0);
     const lastActionEmitRef = useRef(0);
     const lastSuccessRef = useRef(Date.now());
+    const recordingStartTimeRef = useRef(0);
 
     const formatTime = (seconds) => {
         if (isNaN(seconds)) return "0:00";
@@ -270,8 +271,15 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
         // Arms - Boost Sensitivity for lifting and front/back
         if (riggedPose.RightUpperArm) {
             const rot = { ...riggedPose.RightUpperArm };
-            // Z < 0 is down. Compress strongly (0.4) to lift arms easier and reach T-pose early.
-            if (rot.z < 0) rot.z *= 0.4;
+            // Adaptive Scaling for Z (Up/Down) with SmoothStep
+            if (rot.z < 0) {
+                let t = Math.min(1.0, Math.abs(rot.z) / 1.5);
+                t = t * t * (3 - 2 * t); // SmoothStep easing
+                // Softened curve: 0.5 (was 0.4) -> 1.0. 
+                const scale = 0.5 + t * 0.5;
+                rot.z *= scale;
+            }
+
             // Boost Front/Back (Y) and Twist (X)
             if (rot.y) rot.y *= 1.5;
             if (rot.x) rot.x *= 1.5;
@@ -279,8 +287,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
         }
         if (riggedPose.LeftUpperArm) {
             const rot = { ...riggedPose.LeftUpperArm };
-            // Z > 0 is down for Left arm. Compress strongly.
-            if (rot.z > 0) rot.z *= 0.4;
+            // Adaptive Scaling for Z with SmoothStep
+            if (rot.z > 0) {
+                let t = Math.min(1.0, rot.z / 1.5);
+                t = t * t * (3 - 2 * t); // SmoothStep easing
+                const scale = 0.5 + t * 0.5;
+                rot.z *= scale;
+            }
+
             // Boost Front/Back (Y) and Twist (X)
             if (rot.y) rot.y *= 1.5;
             if (rot.x) rot.x *= 1.5;
@@ -354,13 +368,15 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         const finalPose = animateVRM(vrm, riggedPose, propsRef.current.captureSettings);
                         vrm._lastRigTime = Date.now();
 
-                        // Record Data
+                        // Record Data (Skip first 1s)
                         if (propsRef.current.isRecording) {
-                            recordedDataRef.current.push({
-                                t: Date.now(),
-                                input: riggedPose,
-                                output: finalPose
-                            });
+                            if (Date.now() - recordingStartTimeRef.current > 1000) {
+                                recordedDataRef.current.push({
+                                    t: Date.now(),
+                                    input: riggedPose,
+                                    output: finalPose
+                                });
+                            }
                         }
                     }
                 } catch (e) {
@@ -521,21 +537,31 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     useEffect(() => {
         if (!isRecording && recordedDataRef.current.length > 0) {
             // Stop recording triggered -> Download
-            const dataStr = JSON.stringify(recordedDataRef.current, null, 2);
-            const blob = new Blob([dataStr], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `motion-debug-log-${Date.now()}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            const stopTime = Date.now();
+
+            // Skip last 1s
+            const filteredData = recordedDataRef.current.filter(d => d.t < stopTime - 1000);
+
+            if (filteredData.length > 0) {
+                const dataStr = JSON.stringify(filteredData, null, 2);
+                const blob = new Blob([dataStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `motion-debug-log-${Date.now()}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                console.log("Motion data downloaded (Trimmed start/end 1s)");
+            } else {
+                console.log("Recording too short after trimming.");
+            }
             recordedDataRef.current = []; // Clear buffer
-            console.log("Motion data downloaded");
         } else if (isRecording) {
             // Start recording
             recordedDataRef.current = [];
+            recordingStartTimeRef.current = Date.now();
             console.log("Recording started...");
         }
     }, [isRecording]);
