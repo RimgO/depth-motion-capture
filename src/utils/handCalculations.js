@@ -23,8 +23,14 @@ export function calculateFingerRotations(handLandmarks, isLeft = true) {
         
         // Calculate angles
         // Z-axis rotation (curl/bend)
+        // When finger is straight, dy should be negative (tip above base)
+        // When finger is curled, dy is closer to zero or positive
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
-        const bendAngle = Math.atan2(horizontalDist, -dy);
+        
+        // Negate the angle to fix curl direction
+        // Positive rotation = finger extended (straight)
+        // Negative rotation = finger curled (bent)
+        const bendAngle = -(Math.atan2(-dy, horizontalDist) - Math.PI / 2);
         
         // X-axis rotation (spread)
         const spreadAngle = Math.atan2(dx, Math.abs(dz)) * (isLeft ? 1 : -1);
@@ -32,7 +38,37 @@ export function calculateFingerRotations(handLandmarks, isLeft = true) {
         return {
             x: spreadAngle * 0.5,
             y: 0,
-            z: bendAngle - Math.PI / 2
+            z: bendAngle
+        };
+    };
+    
+    // Special calculation for thumb (different coordinate system)
+    const calculateThumbRotation = (from, to) => {
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const dz = to.z - from.z;
+        
+        // Thumb anatomy: extends from palm at ~90° to other fingers
+        // For thumb, dx is the primary curl direction (toward/away from palm)
+        // Positive dx = thumb away from palm (extended)
+        // Negative/small dx = thumb toward palm (closed)
+        
+        // Calculate distance perpendicular to thumb curl direction
+        const perpDist = Math.sqrt(dy*dy + dz*dz);
+        
+        // Z-axis: thumb curl toward palm
+        // For left hand: positive dx = extended, negative dx = closed
+        // For right hand: negative dx = extended, positive dx = closed
+        // We want negative Z when closed, positive Z when extended
+        const bendAngle = Math.atan2(perpDist, isLeft ? dx : -dx) - Math.PI / 2;
+        
+        // X-axis: thumb spread (abduction/adduction)
+        const spreadAngle = Math.atan2(dy, Math.abs(dz)) * (isLeft ? -1 : 1);
+        
+        return {
+            x: spreadAngle * 0.5,
+            y: 0,
+            z: bendAngle
         };
     };
     
@@ -50,13 +86,13 @@ export function calculateFingerRotations(handLandmarks, isLeft = true) {
     const thumbTip = handLandmarks[HAND_LANDMARKS.THUMB_TIP];
     
     if (isLeft) {
-        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_PROXIMAL] = calculateRotation(thumbCmc, thumbMcp);
-        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_INTERMEDIATE] = calculateRotation(thumbMcp, thumbIp);
-        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_DISTAL] = calculateRotation(thumbIp, thumbTip);
+        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_PROXIMAL] = calculateThumbRotation(thumbCmc, thumbMcp);
+        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_INTERMEDIATE] = calculateThumbRotation(thumbMcp, thumbIp);
+        fingerRotations[VRM_HAND_BONES.LEFT_THUMB_DISTAL] = calculateThumbRotation(thumbIp, thumbTip);
     } else {
-        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_PROXIMAL] = calculateRotation(thumbCmc, thumbMcp);
-        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_INTERMEDIATE] = calculateRotation(thumbMcp, thumbIp);
-        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_DISTAL] = calculateRotation(thumbIp, thumbTip);
+        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_PROXIMAL] = calculateThumbRotation(thumbCmc, thumbMcp);
+        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_INTERMEDIATE] = calculateThumbRotation(thumbMcp, thumbIp);
+        fingerRotations[VRM_HAND_BONES.RIGHT_THUMB_DISTAL] = calculateThumbRotation(thumbIp, thumbTip);
     }
     
     // ===== INDEX FINGER =====

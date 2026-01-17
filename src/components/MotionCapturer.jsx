@@ -357,39 +357,42 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
         if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
         if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
 
+        // Fingers - Use higher lerp for faster response (fingers need to move quickly)
+        const fingerLerp = 0.9; // Faster response than body (0.8) for finger articulation
+        
         // Fingers - Left Hand
-        if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal);
-        if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate);
-        if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal);
-        if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal);
-        if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate);
-        if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal);
-        if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal);
-        if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate);
-        if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal);
-        if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal);
-        if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate);
-        if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal);
-        if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal);
-        if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate);
-        if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal);
+        if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal, fingerLerp);
+        if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate, fingerLerp);
+        if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal, fingerLerp);
+        if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal, fingerLerp);
+        if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate, fingerLerp);
+        if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal, fingerLerp);
+        if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal, fingerLerp);
+        if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate, fingerLerp);
+        if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal, fingerLerp);
+        if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal, fingerLerp);
+        if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate, fingerLerp);
+        if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal, fingerLerp);
+        if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal, fingerLerp);
+        if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate, fingerLerp);
+        if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal, fingerLerp);
 
         // Fingers - Right Hand
-        if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal);
-        if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate);
-        if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal);
-        if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal);
-        if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate);
-        if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal);
-        if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal);
-        if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate);
-        if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal);
-        if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal);
-        if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate);
-        if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal);
-        if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal);
-        if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate);
-        if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal);
+        if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal, fingerLerp);
+        if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate, fingerLerp);
+        if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal, fingerLerp);
+        if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal, fingerLerp);
+        if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate, fingerLerp);
+        if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal, fingerLerp);
+        if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal, fingerLerp);
+        if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate, fingerLerp);
+        if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal, fingerLerp);
+        if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal, fingerLerp);
+        if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate, fingerLerp);
+        if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal, fingerLerp);
+        if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal, fingerLerp);
+        if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate, fingerLerp);
+        if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal, fingerLerp);
 
         // Legs (Conditional)
         if (captureSettings?.captureLowerBody) {
