@@ -10,6 +10,9 @@ function App() {
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [captureSettings, setCaptureSettings] = useState({
+    captureLowerBody: true
+  });
 
   // Mock AI Agent Labeling logic
   const handleActionDetected = (landmarks) => {
@@ -134,6 +137,47 @@ function App() {
             </motion.div>
           </section>
 
+          {/* Capture Settings Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-4">
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-3">
+                <Settings size={14} /> Capture Settings
+              </h2>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-white/80">Lower Body Capture</span>
+                <button
+                  onClick={() => setCaptureSettings(prev => ({ ...prev, captureLowerBody: !prev.captureLowerBody }))}
+                  className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings.captureLowerBody ? 'bg-cyan-500' : 'bg-white/10'}`}
+                >
+                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${captureSettings.captureLowerBody ? 'left-4.5' : 'left-0.5'}`} style={{ left: captureSettings.captureLowerBody ? 'calc(100% - 14px)' : '2px' }} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Motion Recording Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-4">
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-3">
+                <Activity size={14} /> Recording
+              </h2>
+              <button
+                onClick={() => setIsRecording(!isRecording)}
+                className={`w-full font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${isRecording
+                    ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
+                    : 'bg-cyan-500 text-black shadow-cyan-500/30 hover:bg-cyan-400'
+                  }`}
+              >
+                <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Start Recording'}
+              </button>
+              {isRecording && (
+                <div className="mt-2 text-[9px] text-red-400 text-center animate-pulse tracking-widest uppercase font-bold">
+                  rec ●
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* AI Monitoring Section */}
           <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
             <button
@@ -203,35 +247,27 @@ function App() {
             </p>
           </div>
         </div>
-      </aside>
+      </aside >
 
       {/* Main Viewport */}
-      <main className="flex-1 relative">
+      < main className="flex-1 relative" >
         <MotionCapturer
           vrmUrl={vrmUrl}
           videoFile={videoFile}
           onActionDetected={handleActionDetected}
           onClearVideo={() => setVideoFile(null)}
           isRecording={isRecording}
+          captureSettings={captureSettings}
         />
 
-        {/* HUD Overlay */}
+        {/* HUD Overlay - Reduced */}
         <div className="absolute top-6 right-6 flex gap-4">
           <button className="glass-panel text-white/80 p-3 hover:text-white">
             <Settings size={20} />
           </button>
-          <button
-            onClick={() => setIsRecording(!isRecording)}
-            className={`font-bold px-6 py-2 rounded-xl flex items-center gap-2 shadow-lg transition-all ${isRecording
-                ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
-                : 'bg-cyan-500 text-black shadow-cyan-500/30'
-              }`}
-          >
-            <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Record Motion'}
-          </button>
         </div>
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }
 

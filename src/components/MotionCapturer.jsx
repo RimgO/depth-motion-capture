@@ -214,26 +214,28 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     }, []);
 
     // --- SOURCE & CAPTURE LOGIC ---
-    const animateVRM = (vrm, riggedPose) => {
+    const animateVRM = (vrm, riggedPose, captureSettings) => {
+        const appliedPose = {};
+
         const setRotation = (name, rotation, lerpAmount = 0.8) => {
             if (!vrm || !vrm.humanoid) return;
             const bone = vrm.humanoid.getNormalizedBoneNode(name);
             if (bone && rotation) {
                 const targetQuat = new THREE.Quaternion().setFromEuler(
-                    new THREE.Euler(rotation.x, rotation.y, rotation.z, 'YXZ')
+                    new THREE.Euler(rotation.x, rotation.y, rotation.z, 'XYZ')
                 );
                 bone.quaternion.slerp(targetQuat, lerpAmount);
+                appliedPose[name] = rotation;
             }
         };
 
-        if (riggedPose.UpperChest) setRotation('upperChest', riggedPose.UpperChest);
-        if (riggedPose.Chest) setRotation('chest', riggedPose.Chest);
-        if (riggedPose.Neck) setRotation('neck', riggedPose.Neck);
-        if (riggedPose.Head) setRotation('head', riggedPose.Head);
-
+        // Core Body
         if (riggedPose.Hips) {
             const hips = vrm.humanoid.getNormalizedBoneNode('hips');
             if (hips) {
+                // Adjust position scaling and offset
+                // Mediapipe World coords are roughly meters, but origin is hip center.
+                // VRM Hips are usually ~1.0m off ground.
                 hips.position.set(
                     -riggedPose.Hips.worldPosition.x,
                     riggedPose.Hips.worldPosition.y + 1.0,
@@ -245,16 +247,59 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             }
         }
 
-        if (riggedPose.RightUpperArm) setRotation('rightUpperArm', riggedPose.RightUpperArm);
-        if (riggedPose.LeftUpperArm) setRotation('leftUpperArm', riggedPose.LeftUpperArm);
+        if (riggedPose.Spine) setRotation('spine', riggedPose.Spine);
+        if (riggedPose.Chest) setRotation('chest', riggedPose.Chest);
+        if (riggedPose.UpperChest) setRotation('upperChest', riggedPose.UpperChest);
+        if (riggedPose.Neck) setRotation('neck', riggedPose.Neck);
+        if (riggedPose.Head) setRotation('head', riggedPose.Head);
+
+        // Shoulders (Clavicles) - Dampen for stability
+        if (riggedPose.RightShoulder) {
+            const rot = { ...riggedPose.RightShoulder };
+            rot.z *= 0.5; // Reduce shrugging intensity
+            // rot.y damping removed to allow forward reach
+            setRotation('rightShoulder', rot);
+        }
+        if (riggedPose.LeftShoulder) {
+            const rot = { ...riggedPose.LeftShoulder };
+            rot.z *= 0.5;
+            // rot.y damping removed
+            setRotation('leftShoulder', rot);
+        }
+
+        // Arms - Boost Sensitivity for lifting and front/back
+        if (riggedPose.RightUpperArm) {
+            const rot = { ...riggedPose.RightUpperArm };
+            // Z < 0 is down. Compress strongly (0.4) to lift arms easier and reach T-pose early.
+            if (rot.z < 0) rot.z *= 0.4;
+            // Boost Front/Back (Y) and Twist (X)
+            if (rot.y) rot.y *= 1.5;
+            if (rot.x) rot.x *= 1.5;
+            setRotation('rightUpperArm', rot);
+        }
+        if (riggedPose.LeftUpperArm) {
+            const rot = { ...riggedPose.LeftUpperArm };
+            // Z > 0 is down for Left arm. Compress strongly.
+            if (rot.z > 0) rot.z *= 0.4;
+            // Boost Front/Back (Y) and Twist (X)
+            if (rot.y) rot.y *= 1.5;
+            if (rot.x) rot.x *= 1.5;
+            setRotation('leftUpperArm', rot);
+        }
+
         if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
         if (riggedPose.LeftLowerArm) setRotation('leftLowerArm', riggedPose.LeftLowerArm);
         if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
         if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
-        if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
-        if (riggedPose.LeftUpperLeg) setRotation('leftUpperLeg', riggedPose.LeftUpperLeg);
-        if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
-        if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
+
+        // Legs (Conditional)
+        if (captureSettings?.captureLowerBody) {
+            if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
+            if (riggedPose.LeftUpperLeg) setRotation('leftUpperLeg', riggedPose.LeftUpperLeg);
+            if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
+            if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
+        }
+        return appliedPose;
     };
 
     // --- SOURCE & CAPTURE LOGIC ---
@@ -285,14 +330,36 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         enableSmoothing: true
                     });
                     if (riggedPose) {
-                        animateVRM(vrm, riggedPose);
+                        // --- Manual Fix for Arm Front/Back (Y-Rotation) ---
+                        // Kalidokit sometimes outputs Y=0. We calculate it from Z-depth.
+                        if (results.poseWorldLandmarks) {
+                            const lm = results.poseWorldLandmarks;
+                            const rShoulder = lm[12], rElbow = lm[14];
+                            const lShoulder = lm[11], lElbow = lm[13];
+
+                            if (rShoulder && rElbow && riggedPose.RightUpperArm) {
+                                // Right Arm: Vector R_Shoulder -> R_Elbow
+                                const dz = rElbow.z - rShoulder.z; // -ve means forward
+                                // Increase sensitivity significantly (1.5 -> 5.0) to capture front reach
+                                riggedPose.RightUpperArm.y = -(dz * 5.0);
+                            }
+                            if (lShoulder && lElbow && riggedPose.LeftUpperArm) {
+                                // Left Arm
+                                const dz = lElbow.z - lShoulder.z;
+                                riggedPose.LeftUpperArm.y = (dz * 5.0);
+                            }
+                        }
+                        // --------------------------------------------------
+
+                        const finalPose = animateVRM(vrm, riggedPose, propsRef.current.captureSettings);
                         vrm._lastRigTime = Date.now();
 
                         // Record Data
                         if (propsRef.current.isRecording) {
                             recordedDataRef.current.push({
                                 t: Date.now(),
-                                pose: riggedPose
+                                input: riggedPose,
+                                output: finalPose
                             });
                         }
                     }
@@ -459,7 +526,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `motion-capture-${Date.now()}.json`;
+            a.download = `motion-debug-log-${Date.now()}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
