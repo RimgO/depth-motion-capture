@@ -10,6 +10,41 @@ import { Camera } from '@mediapipe/camera_utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward } from 'lucide-react';
 
+// --- LOW PASS FILTER CLASS ---
+// Reduces jitter in landmark positions
+class LowPassFilter {
+    constructor(smoothing = 0.3) {
+        this.smoothing = smoothing;
+        this.initialized = false;
+        this.hatXPrev = null;
+    }
+
+    filter(value) {
+        if (!this.initialized) {
+            this.initialized = true;
+            this.hatXPrev = value;
+            return value;
+        }
+        
+        const alpha = this.smoothing;
+        const hatX = {};
+        for (const key in value) {
+            if (typeof value[key] === 'number' && this.hatXPrev[key] !== undefined) {
+                hatX[key] = alpha * this.hatXPrev[key] + (1 - alpha) * value[key];
+            } else {
+                hatX[key] = value[key];
+            }
+        }
+        this.hatXPrev = hatX;
+        return hatX;
+    }
+
+    reset() {
+        this.initialized = false;
+        this.hatXPrev = null;
+    }
+}
+
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
 let globalHolisticInstance = null;
@@ -26,12 +61,12 @@ const getGlobalHolistic = () => {
         });
 
         holistic.setOptions({
-            modelComplexity: 1,
+            modelComplexity: 2,  // Higher complexity for better 3D estimation
             smoothLandmarks: true,
             enableSegmentation: false,
             smoothSegmentation: false,
             minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5,
+            minTrackingConfidence: 0.7,  // Higher tracking confidence
             refineFaceLandmarks: true,
         });
 
@@ -43,6 +78,7 @@ const getGlobalHolistic = () => {
                 console.log('[Holistic onResults]', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
+                    hasZa: !!results.za,
                     hasLeftHandLandmarks: !!results.leftHandLandmarks,
                     hasRightHandLandmarks: !!results.rightHandLandmarks
                 });
@@ -92,6 +128,10 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     const rendererRef = useRef(null);
     const propsRef = useRef({ onActionDetected, isRecording });
     const recordedDataRef = useRef([]);
+    
+    // Low-pass filters for each landmark
+    const landmarkFiltersRef = useRef(null);
+    const previousRiggedPoseRef = useRef(null);
 
     // Keep props fresh for the results handler
     useEffect(() => {
@@ -286,38 +326,12 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             setRotation('leftShoulder', rot);
         }
 
-        // Arms - Boost Sensitivity for lifting and front/back
+        // Arms - Direct application (scaling already done in geometric calculation)
         if (riggedPose.RightUpperArm) {
-            const rot = { ...riggedPose.RightUpperArm };
-            // Adaptive Scaling for Z (Up/Down) with SmoothStep
-            if (rot.z < 0) {
-                let t = Math.min(1.0, Math.abs(rot.z) / 1.5);
-                t = t * t * (3 - 2 * t); // SmoothStep easing
-                // Softened curve: 0.5 (was 0.4) -> 1.0. 
-                const scale = 0.5 + t * 0.5;
-                rot.z *= scale;
-            }
-
-            // Boost Front/Back (Y) and Twist (X)
-            if (rot.y) rot.y *= 1.5;
-            if (rot.x) rot.x *= 1.5;
-            setRotation('rightUpperArm', rot);
+            setRotation('rightUpperArm', riggedPose.RightUpperArm);
         }
         if (riggedPose.LeftUpperArm) {
-            const rot = { ...riggedPose.LeftUpperArm };
-            // Adaptive Scaling for Z with SmoothStep
-            if (rot.z > 0) {
-                // Narrow deadzone: Full sensitivity after 0.5 rad (~30 deg)
-                let t = Math.min(1.0, rot.z / 0.5);
-                t = t * t * (3 - 2 * t); // SmoothStep easing
-                const scale = 0.5 + t * 0.5;
-                rot.z *= scale;
-            }
-
-            // Boost Front/Back (Y) and Twist (X)
-            if (rot.y) rot.y *= 1.5;
-            if (rot.x) rot.x *= 1.5;
-            setRotation('leftUpperArm', rot);
+            setRotation('leftUpperArm', riggedPose.LeftUpperArm);
         }
 
         if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
@@ -348,6 +362,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 console.log('[resultsHandler] Processing pose data', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
+                    hasZa: !!results.za,
                     hasVrm: !!vrmRef.current
                 });
             }
@@ -385,21 +400,170 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             if (!results.poseLandmarks) return;
             const landmarks = results.poseLandmarks;
 
+            // === DEBUG: Check if poseWorldLandmarks is available ===
+            if (typeof window !== 'undefined' && !window._poseWorldLandmarksChecked) {
+                console.log('=== MediaPipe Holistic Results Check ===');
+                console.log('results keys:', Object.keys(results));
+                console.log('poseWorldLandmarks exists?', results.poseWorldLandmarks !== undefined);
+                console.log('poseWorldLandmarks type:', typeof results.poseWorldLandmarks);
+                console.log('poseWorldLandmarks length:', results.poseWorldLandmarks?.length);
+                
+                // Check mysterious 'za' property
+                console.log('--- Checking results.za ---');
+                console.log('za exists?', results.za !== undefined);
+                console.log('za type:', typeof results.za);
+                if (results.za) {
+                    console.log('za is array?', Array.isArray(results.za));
+                    console.log('za length:', results.za?.length);
+                    if (results.za.length > 0) {
+                        console.log('Sample za[0]:', results.za[0]);
+                        console.log('za[0] properties:', Object.keys(results.za[0] || {}));
+                    }
+                }
+                
+                if (results.poseWorldLandmarks && results.poseWorldLandmarks.length > 0) {
+                    console.log('Sample poseWorldLandmarks[0]:', results.poseWorldLandmarks[0]);
+                    console.log('Has x/y/z properties?', {
+                        x: results.poseWorldLandmarks[0].x,
+                        y: results.poseWorldLandmarks[0].y,
+                        z: results.poseWorldLandmarks[0].z,
+                        visibility: results.poseWorldLandmarks[0].visibility
+                    });
+                }
+                console.log('==========================================');
+                window._poseWorldLandmarksChecked = true;
+            }
+
             const vrm = vrmRef.current;
             if (vrm && vrm.scene && vrm.scene.parent) {
                 try {
-                    // Holistic doesn't always provide poseWorldLandmarks, so we create pseudo-3D from 2D
-                    let worldLandmarks = results.poseWorldLandmarks;
+                    // MediaPipe Holistic provides 3D world landmarks via 'za' property (internal naming)
+                    // This contains real 3D coordinates from the pose estimation model
+                    let worldLandmarks = results.za || results.poseWorldLandmarks;
                     
                     if (!worldLandmarks && landmarks) {
-                        // Generate pseudo-3D world landmarks from 2D landmarks
-                        // Using visibility as a proxy for depth (z-coordinate)
-                        worldLandmarks = landmarks.map(lm => ({
-                            x: (lm.x - 0.5) * 2, // Normalize to [-1, 1]
-                            y: (0.5 - lm.y) * 2, // Flip Y and normalize
-                            z: (lm.visibility || 0.5) * -0.5, // Use visibility as depth proxy
-                            visibility: lm.visibility
-                        }));
+                        // Advanced pseudo-3D world landmarks generation from 2D landmarks
+                        // Using biomechanical constraints and skeletal kinematics
+                        
+                        // Initialize filters on first frame
+                        if (!landmarkFiltersRef.current) {
+                            landmarkFiltersRef.current = landmarks.map(() => new LowPassFilter(0.8));
+                        }
+                        
+                        // Helper functions
+                        const dist2D = (a, b) => Math.sqrt((a.x - b.x)**2 + (a.y - b.y)**2);
+                        const vec2D = (from, to) => ({ x: to.x - from.x, y: to.y - from.y });
+                        const dot2D = (a, b) => a.x * b.x + a.y * b.y;
+                        const length2D = (v) => Math.sqrt(v.x * v.x + v.y * v.y);
+                        
+                        // MediaPipe Pose landmark indices
+                        const NOSE = 0;
+                        const LEFT_SHOULDER = 11, RIGHT_SHOULDER = 12;
+                        const LEFT_ELBOW = 13, RIGHT_ELBOW = 14;
+                        const LEFT_WRIST = 15, RIGHT_WRIST = 16;
+                        const LEFT_HIP = 23, RIGHT_HIP = 24;
+                        
+                        // Calculate torso center and orientation
+                        const shoulderCenter = {
+                            x: (landmarks[LEFT_SHOULDER].x + landmarks[RIGHT_SHOULDER].x) / 2,
+                            y: (landmarks[LEFT_SHOULDER].y + landmarks[RIGHT_SHOULDER].y) / 2
+                        };
+                        const hipCenter = {
+                            x: (landmarks[LEFT_HIP].x + landmarks[RIGHT_HIP].x) / 2,
+                            y: (landmarks[LEFT_HIP].y + landmarks[RIGHT_HIP].y) / 2
+                        };
+                        
+                        worldLandmarks = landmarks.map((lm, index) => {
+                            let depthEstimate = 0;
+                            
+                            // Arm depth estimation with improved biomechanics
+                            if (index === LEFT_WRIST || index === RIGHT_WRIST) {
+                                const isLeft = index === LEFT_WRIST;
+                                const shoulder = landmarks[isLeft ? LEFT_SHOULDER : RIGHT_SHOULDER];
+                                const elbow = landmarks[isLeft ? LEFT_ELBOW : RIGHT_ELBOW];
+                                
+                                // Vector from shoulder to elbow
+                                const shoulderToElbow = vec2D(shoulder, elbow);
+                                const elbowToWrist = vec2D(elbow, lm);
+                                
+                                // Arm raised vertically = forward projection
+                                const verticalComponent = shoulder.y - lm.y; // Positive = hand above shoulder
+                                depthEstimate += verticalComponent * 1.5;
+                                
+                                // Lateral extension = forward/back based on side
+                                const lateralDistance = Math.abs(lm.x - shoulderCenter.x);
+                                const centerToShoulder = shoulder.x - shoulderCenter.x;
+                                const centerToWrist = lm.x - shoulderCenter.x;
+                                // If wrist is further from center than shoulder, it's extending outward
+                                if (Math.sign(centerToWrist) === Math.sign(centerToShoulder) && 
+                                    Math.abs(centerToWrist) > Math.abs(centerToShoulder)) {
+                                    depthEstimate += lateralDistance * 1.0;
+                                }
+                                
+                                // Elbow angle: more bent = more forward
+                                const upperArmLen = length2D(shoulderToElbow);
+                                const forearmLen = length2D(elbowToWrist);
+                                const shoulderToWristDist = dist2D(shoulder, lm);
+                                if (upperArmLen + forearmLen > 0) {
+                                    const armExtension = shoulderToWristDist / (upperArmLen + forearmLen);
+                                    // Full extension = 1.0, fully bent = 0.0
+                                    depthEstimate += (1 - armExtension) * 0.6;
+                                }
+                                
+                                // Forward reach indicator (wrist ahead of shoulder in X)
+                                if (isLeft && lm.x > shoulder.x || !isLeft && lm.x < shoulder.x) {
+                                    depthEstimate += Math.abs(lm.x - shoulder.x) * 0.5;
+                                }
+                            }
+                            // Elbow depth
+                            else if (index === LEFT_ELBOW || index === RIGHT_ELBOW) {
+                                const isLeft = index === LEFT_ELBOW;
+                                const shoulder = landmarks[isLeft ? LEFT_SHOULDER : RIGHT_SHOULDER];
+                                const wrist = landmarks[isLeft ? LEFT_WRIST : RIGHT_WRIST];
+                                
+                                // Raised elbow = forward
+                                const elbowHeight = shoulder.y - lm.y;
+                                depthEstimate = elbowHeight * 1.2;
+                                
+                                // Lateral position
+                                const lateralDist = Math.abs(lm.x - shoulder.x);
+                                depthEstimate += lateralDist * 0.8;
+                                
+                                // If elbow is between shoulder and wrist vertically
+                                if (lm.y > shoulder.y && lm.y < wrist.y) {
+                                    depthEstimate += 0.2; // Slightly forward
+                                }
+                            }
+                            // Shoulders - reference depth
+                            else if (index === LEFT_SHOULDER || index === RIGHT_SHOULDER) {
+                                depthEstimate = -0.05;
+                            }
+                            // Hips - slightly back
+                            else if (index === LEFT_HIP || index === RIGHT_HIP) {
+                                depthEstimate = -0.1;
+                            }
+                            // Head/Face - forward
+                            else if (index <= 10) { // Face landmarks
+                                const noseToShoulderY = shoulderCenter.y - landmarks[NOSE].y;
+                                depthEstimate = noseToShoulderY * 0.3;
+                            }
+                            // Default: slight depth variation based on Y
+                            else {
+                                depthEstimate = (lm.y - 0.5) * -0.2;
+                            }
+                            
+                            return {
+                                x: (lm.x - 0.5) * 2.0, // Normalize to [-1, 1]
+                                y: (0.5 - lm.y) * 2.0, // Flip Y and normalize
+                                z: depthEstimate,
+                                visibility: lm.visibility || 0.5
+                            };
+                        });
+                        
+                        // Apply low-pass filter to reduce jitter
+                        worldLandmarks = worldLandmarks.map((wl, i) => {
+                            return landmarkFiltersRef.current[i].filter(wl);
+                        });
                     }
                     
                     if (!worldLandmarks) {
@@ -407,32 +571,172 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         return;
                     }
                     
-                    const riggedPose = Kalidokit.Pose.solve(landmarks, worldLandmarks, {
-                        runtime: "mediapipe",
-                        video: videoRef.current,
-                        enableSmoothing: true
-                    });
-                    if (riggedPose) {
-                        // --- Manual Fix for Arm Front/Back (Y-Rotation) ---
-                        // Kalidokit sometimes outputs Y=0. We calculate it from Z-depth.
-                        if (worldLandmarks && worldLandmarks.length > 14) {
-                            const lm = worldLandmarks;
-                            const rShoulder = lm[12], rElbow = lm[14];
-                            const lShoulder = lm[11], lElbow = lm[13];
-
-                            if (rShoulder && rElbow && riggedPose.RightUpperArm) {
-                                // Right Arm: Vector R_Shoulder -> R_Elbow
-                                const dz = rElbow.z - rShoulder.z; // -ve means forward
-                                // Moderate sensitivity (2.0) to balance front reach without over-rotation
-                                riggedPose.RightUpperArm.y = -(dz * 2.0);
+                    // Calculate arm rotations directly from results.za 3D coordinates
+                    // Kalidokit doesn't handle results.za coordinate system correctly
+                    let riggedPose = null;
+                    
+                    if (worldLandmarks && worldLandmarks.length >= 17) {
+                        const lm = worldLandmarks;
+                        
+                        // Define landmarks
+                        const rShoulder = lm[12], rElbow = lm[14], rWrist = lm[16];
+                        const lShoulder = lm[11], lElbow = lm[13], lWrist = lm[15];
+                        const rHip = lm[24], lHip = lm[23];
+                        const nose = lm[0];
+                        
+                        // Calculate torso center for reference
+                        const torsoCenter = {
+                            x: (rShoulder.x + lShoulder.x) / 2,
+                            y: (rShoulder.y + lShoulder.y) / 2,
+                            z: (rShoulder.z + lShoulder.z) / 2
+                        };
+                        
+                        const hipCenter = {
+                            x: (rHip.x + lHip.x) / 2,
+                            y: (rHip.y + lHip.y) / 2,
+                            z: (rHip.z + lHip.z) / 2
+                        };
+                        
+                        riggedPose = {
+                            RightUpperArm: { x: 0, y: 0, z: 0 },
+                            LeftUpperArm: { x: 0, y: 0, z: 0 },
+                            RightLowerArm: { x: 0, y: 0, z: 0 },
+                            LeftLowerArm: { x: 0, y: 0, z: 0 },
+                            RightHand: { x: 0, y: 0, z: 0 },
+                            LeftHand: { x: 0, y: 0, z: 0 },
+                            RightShoulder: { x: 0, y: 0, z: 0 },
+                            LeftShoulder: { x: 0, y: 0, z: 0 },
+                            Hips: { 
+                                x: 0, y: 0, z: 0,
+                                rotation: { x: 0, y: 0, z: 0 },
+                                worldPosition: { x: hipCenter.x, y: hipCenter.y, z: hipCenter.z }
+                            },
+                            Spine: { x: 0, y: 0, z: 0 },
+                            Chest: null,
+                            UpperChest: null,
+                            Neck: null,
+                            Head: null
+                        };
+                        
+                        // === RIGHT ARM ===
+                        if (rShoulder && rElbow && rWrist) {
+                            // Vector from shoulder to elbow
+                            const dx = rElbow.x - rShoulder.x;
+                            const dy = rElbow.y - rShoulder.y;
+                            const dz = rElbow.z - rShoulder.z;
+                            
+                            // Z-axis rotation: Arm raise/lower
+                            // Calculate angle from vertical axis (gravity direction)
+                            // MediaPipe: Y increases downward, so -dy for upward direction
+                            const horizontalDist = Math.sqrt(dx*dx + dz*dz);
+                            const angleZ = Math.atan2(horizontalDist, -dy);
+                            // Map to VRM range: negate for correct up/down direction
+                            riggedPose.RightUpperArm.z = -(angleZ - Math.PI/2);
+                            
+                            // Debug: Log angles occasionally
+                            if (Math.random() < 0.02) {
+                                console.log(`[Right Arm] angleZ: ${(angleZ * 57.3).toFixed(1)}°, VRM.z: ${(riggedPose.RightUpperArm.z * 57.3).toFixed(1)}°, dy: ${dy.toFixed(3)}, horizontalDist: ${horizontalDist.toFixed(3)}`);
                             }
-                            if (lShoulder && lElbow && riggedPose.LeftUpperArm) {
-                                // Left Arm
-                                const dz = lElbow.z - lShoulder.z;
-                                riggedPose.LeftUpperArm.y = (dz * 2.0);
+                            
+                            // X-axis rotation: Forward/backward tilt
+                            if (horizontalDist > 0) {
+                                const angleX = Math.atan2(dz, Math.abs(dx)) * 0.5;
+                                riggedPose.RightUpperArm.x = angleX;
+                            } else {
+                                riggedPose.RightUpperArm.x = 0;
+                            }
+                            
+                            // Y-axis rotation: Internal/external rotation (arm twist)
+                            riggedPose.RightUpperArm.y = 0;
+                            
+                            // Elbow bend
+                            const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                            const lowerDx = rWrist.x - rElbow.x;
+                            const lowerDy = rWrist.y - rElbow.y;
+                            const lowerDz = rWrist.z - rElbow.z;
+                            const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
+                            
+                            if (upperLen > 0 && lowerLen > 0) {
+                                const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
+                                const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / (upperLen * lowerLen))));
+                                // elbowAngle: 0=straight (vectors aligned), π=fully bent (vectors opposite)
+                                // VRM: 0=straight, positive=bent (inverted for right arm)
+                                riggedPose.RightLowerArm.z = elbowAngle;
                             }
                         }
+                        
+                        // === LEFT ARM ===
+                        if (lShoulder && lElbow && lWrist) {
+                            const dx = lElbow.x - lShoulder.x;
+                            const dy = lElbow.y - lShoulder.y;
+                            const dz = lElbow.z - lShoulder.z;
+                            
+                            // Z-axis rotation: Arm raise/lower
+                            // Same calculation as right arm
+                            const horizontalDist = Math.sqrt(dx*dx + dz*dz);
+                            const angleZ = Math.atan2(horizontalDist, -dy);
+                            riggedPose.LeftUpperArm.z = angleZ - Math.PI/2;
+                            
+                            // Debug: Log angles occasionally
+                            if (Math.random() < 0.02) {
+                                console.log(`[Left Arm] angleZ: ${(angleZ * 57.3).toFixed(1)}°, VRM.z: ${(riggedPose.LeftUpperArm.z * 57.3).toFixed(1)}°, dy: ${dy.toFixed(3)}, horizontalDist: ${horizontalDist.toFixed(3)}`);
+                            }
+                            
+                            // X-axis rotation: Forward/backward tilt  
+                            if (horizontalDist > 0) {
+                                const angleX = Math.atan2(dz, Math.abs(dx)) * 0.5;
+                                riggedPose.LeftUpperArm.x = angleX;
+                            } else {
+                                riggedPose.LeftUpperArm.x = 0;
+                            }
+                            
+                            // Y-axis rotation: Internal/external rotation
+                            riggedPose.LeftUpperArm.y = 0;
+                            
+                            // Elbow bend
+                            const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                            const lowerDx = lWrist.x - lElbow.x;
+                            const lowerDy = lWrist.y - lElbow.y;
+                            const lowerDz = lWrist.z - lElbow.z;
+                            const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
+                            
+                            if (upperLen > 0 && lowerLen > 0) {
+                                const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
+                                const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / (upperLen * lowerLen))));
+                                // Same calculation as right arm
+                                riggedPose.LeftLowerArm.z = -elbowAngle;
+                            }
+                        }
+                        
+                        // Hips and Spine
+                        riggedPose.Hips.rotation.z = (hipCenter.z - torsoCenter.z) * 2.0;
+                        riggedPose.Spine.z = (torsoCenter.z - hipCenter.z) * 1.0;
+                    }
+                    
+                    if (riggedPose) {
                         // --------------------------------------------------
+
+                        // Apply temporal smoothing to rigged pose (reduces jitter in bone rotations)
+                        if (previousRiggedPoseRef.current) {
+                            const smoothingFactor = 0.5; // 0=no smoothing, 1=full smoothing (increased from 0.3)
+                            const smoothRotation = (current, previous, key) => {
+                                if (!current || !previous) return;
+                                const parts = ['x', 'y', 'z'];
+                                parts.forEach(axis => {
+                                    if (typeof current[key]?.[axis] === 'number' && typeof previous[key]?.[axis] === 'number') {
+                                        current[key][axis] = previous[key][axis] + (current[key][axis] - previous[key][axis]) * (1 - smoothingFactor);
+                                    }
+                                });
+                            };
+
+                            // Smooth all body parts
+                            ['RightUpperArm', 'RightLowerArm', 'LeftUpperArm', 'LeftLowerArm',
+                             'RightUpperLeg', 'RightLowerLeg', 'LeftUpperLeg', 'LeftLowerLeg',
+                             'Hips', 'Spine'].forEach(part => {
+                                smoothRotation(riggedPose, previousRiggedPoseRef.current, part);
+                            });
+                        }
+                        previousRiggedPoseRef.current = JSON.parse(JSON.stringify(riggedPose)); // Deep copy
 
                         const finalPose = animateVRM(vrm, riggedPose, propsRef.current.captureSettings);
                         vrm._lastRigTime = Date.now();
