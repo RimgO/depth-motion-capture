@@ -51,10 +51,15 @@ export function calculateArmRotations(worldLandmarks) {
             riggedPose.RightUpperArm.x = 0;
         }
         
+        // Elbow bend and arm twist calculations
+        const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        const lowerDx = rWrist.x - rElbow.x;
+        const lowerDy = rWrist.y - rElbow.y;
+        const lowerDz = rWrist.z - rElbow.z;
+        const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
+        
         // Y-axis rotation: Internal/external rotation (arm twist)
         // Calculate rotation based on forearm orientation
-        const lowerDx = rWrist.x - rElbow.x;
-        const lowerDz = rWrist.z - rElbow.z;
         // Angle of forearm in XZ plane relative to upper arm
         const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
         const upperArmAngleXZ = Math.atan2(dx, dz);
@@ -65,13 +70,6 @@ export function calculateArmRotations(worldLandmarks) {
         if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
         // Apply with scaling for natural movement
         riggedPose.RightUpperArm.y = twistAngle * 0.5;
-        
-        // Elbow bend
-        const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        const lowerDx = rWrist.x - rElbow.x;
-        const lowerDy = rWrist.y - rElbow.y;
-        const lowerDz = rWrist.z - rElbow.z;
-        const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
         
         if (upperLen > 0 && lowerLen > 0) {
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
@@ -107,10 +105,15 @@ export function calculateArmRotations(worldLandmarks) {
             riggedPose.LeftUpperArm.x = 0;
         }
         
+        // Elbow bend and arm twist calculations
+        const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        const lowerDx = lWrist.x - lElbow.x;
+        const lowerDy = lWrist.y - lElbow.y;
+        const lowerDz = lWrist.z - lElbow.z;
+        const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
+        
         // Y-axis rotation: Internal/external rotation (arm twist)
         // Calculate rotation based on forearm orientation
-        const lowerDx = lWrist.x - lElbow.x;
-        const lowerDz = lWrist.z - lElbow.z;
         // Angle of forearm in XZ plane relative to upper arm
         const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
         const upperArmAngleXZ = Math.atan2(dx, dz);
@@ -121,13 +124,6 @@ export function calculateArmRotations(worldLandmarks) {
         if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
         // Apply with scaling for natural movement (inverted for left arm)
         riggedPose.LeftUpperArm.y = -twistAngle * 0.5;
-        
-        // Elbow bend
-        const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        const lowerDx = lWrist.x - lElbow.x;
-        const lowerDy = lWrist.y - lElbow.y;
-        const lowerDz = lWrist.z - lElbow.z;
-        const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
         
         if (upperLen > 0 && lowerLen > 0) {
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
