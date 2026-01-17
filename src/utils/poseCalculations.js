@@ -52,7 +52,19 @@ export function calculateArmRotations(worldLandmarks) {
         }
         
         // Y-axis rotation: Internal/external rotation (arm twist)
-        riggedPose.RightUpperArm.y = 0;
+        // Calculate rotation based on forearm orientation
+        const lowerDx = rWrist.x - rElbow.x;
+        const lowerDz = rWrist.z - rElbow.z;
+        // Angle of forearm in XZ plane relative to upper arm
+        const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
+        const upperArmAngleXZ = Math.atan2(dx, dz);
+        // Twist is the difference between forearm and upper arm horizontal angles
+        let twistAngle = forearmAngleXZ - upperArmAngleXZ;
+        // Normalize to [-π, π]
+        if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
+        if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
+        // Apply with scaling for natural movement
+        riggedPose.RightUpperArm.y = twistAngle * 0.5;
         
         // Elbow bend
         const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
@@ -95,8 +107,20 @@ export function calculateArmRotations(worldLandmarks) {
             riggedPose.LeftUpperArm.x = 0;
         }
         
-        // Y-axis rotation: Internal/external rotation
-        riggedPose.LeftUpperArm.y = 0;
+        // Y-axis rotation: Internal/external rotation (arm twist)
+        // Calculate rotation based on forearm orientation
+        const lowerDx = lWrist.x - lElbow.x;
+        const lowerDz = lWrist.z - lElbow.z;
+        // Angle of forearm in XZ plane relative to upper arm
+        const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
+        const upperArmAngleXZ = Math.atan2(dx, dz);
+        // Twist is the difference between forearm and upper arm horizontal angles
+        let twistAngle = forearmAngleXZ - upperArmAngleXZ;
+        // Normalize to [-π, π]
+        if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
+        if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
+        // Apply with scaling for natural movement (inverted for left arm)
+        riggedPose.LeftUpperArm.y = -twistAngle * 0.5;
         
         // Elbow bend
         const upperLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
