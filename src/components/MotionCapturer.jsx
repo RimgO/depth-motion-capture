@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { Pose, POSE_CONNECTIONS } from '@mediapipe/pose';
+import { VRM, VRMUtils, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { Holistic, POSE_CONNECTIONS, HAND_CONNECTIONS, FACEMESH_TESSELATION } from '@mediapipe/holistic';
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 import * as Kalidokit from 'kalidokit';
 import { Camera } from '@mediapipe/camera_utils';
@@ -12,40 +12,48 @@ import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward } from 'lucide-r
 
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
-let globalPoseInstance = null;
-let globalPosePromise = null;
+let globalHolisticInstance = null;
+let globalHolisticPromise = null;
 let activeResultsCallback = null;
 
-const getGlobalPose = () => {
-    if (globalPosePromise) return globalPosePromise;
+const getGlobalHolistic = () => {
+    if (globalHolisticPromise) return globalHolisticPromise;
 
-    globalPosePromise = (async () => {
-        console.log("Starting Global AI Engine initialization...");
-        const pose = new Pose({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`,
+    globalHolisticPromise = (async () => {
+        console.log("Starting Global AI Engine (Holistic) initialization...");
+        const holistic = new Holistic({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1675471629/${file}`,
         });
 
-        pose.setOptions({
+        holistic.setOptions({
             modelComplexity: 1,
             smoothLandmarks: true,
+            enableSegmentation: false,  // Disable segmentation to reduce overhead
+            smoothSegmentation: false,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5,
+            refineFaceLandmarks: true,
         });
 
-        await pose.initialize();
+        await holistic.initialize();
 
-        pose.onResults((results) => {
+        holistic.onResults((results) => {
             if (activeResultsCallback) {
                 activeResultsCallback(results);
+            } else {
+                // Log when callback is not set (should only happen briefly during initialization)
+                if (Math.random() < 0.01) {
+                    console.warn('[Holistic] Results received but no activeResultsCallback set');
+                }
             }
         });
 
-        console.log("Global AI Engine Ready.");
-        globalPoseInstance = pose;
-        return pose;
+        console.log("Global AI Engine (Holistic) Ready.");
+        globalHolisticInstance = holistic;
+        return holistic;
     })();
 
-    return globalPosePromise;
+    return globalHolisticPromise;
 };
 
 // Global error suppression for SES "null" exceptions
@@ -118,9 +126,9 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                     { id: Date.now(), time: 'BOOT', msg: 'WASM Runtime: Requesting AI core...' },
                     ...prev
                 ]);
-                const pose = await getGlobalPose();
+                const holistic = await getGlobalHolistic();
                 if (!isInstanceDestroyed) {
-                    poseRef.current = pose;
+                    poseRef.current = holistic;
                     setAnalysisLogs(prev => [
                         { id: Date.now(), time: 'OK', msg: 'WASM Runtime: AI core established.' },
                         ...prev
@@ -289,7 +297,8 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             const rot = { ...riggedPose.LeftUpperArm };
             // Adaptive Scaling for Z with SmoothStep
             if (rot.z > 0) {
-                let t = Math.min(1.0, rot.z / 1.5);
+                // Narrow deadzone: Full sensitivity after 0.5 rad (~30 deg)
+                let t = Math.min(1.0, rot.z / 0.5);
                 t = t * t * (3 - 2 * t); // SmoothStep easing
                 const scale = 0.5 + t * 0.5;
                 rot.z *= scale;
@@ -319,7 +328,20 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     // --- SOURCE & CAPTURE LOGIC ---
     useEffect(() => {
         const resultsHandler = async (results) => {
-            if (!results) return;
+            if (!results) {
+                console.log('[resultsHandler] Called but no results');
+                return;
+            }
+
+            // Log every 60 frames to avoid spam
+            if (Math.random() < 0.016) { // ~1/60 chance
+                console.log('[resultsHandler] Processing pose data', {
+                    hasPoseLandmarks: !!results.poseLandmarks,
+                    hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
+                    hasVrm: !!vrmRef.current
+                });
+            }
+
             lastSuccessRef.current = Date.now();
             if (engineStatus !== 'Running') setEngineStatus('Running');
 
@@ -327,8 +349,26 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 const canvasCtx = overlayRef.current.getContext('2d');
                 canvasCtx.save();
                 canvasCtx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+
+                // Draw pose
                 drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00f2fe', lineWidth: 2 });
                 drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#ff0077', lineWidth: 1, radius: 3 });
+
+                // Draw hands
+                if (results.leftHandLandmarks) {
+                    drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, { color: '#00ff00', lineWidth: 1 });
+                    drawLandmarks(canvasCtx, results.leftHandLandmarks, { color: '#00ff00', lineWidth: 1, radius: 2 });
+                }
+                if (results.rightHandLandmarks) {
+                    drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, { color: '#ff00ff', lineWidth: 1 });
+                    drawLandmarks(canvasCtx, results.rightHandLandmarks, { color: '#ff00ff', lineWidth: 1, radius: 2 });
+                }
+
+                // Draw face (optional, can be commented out if too dense)
+                // if (results.faceLandmarks) {
+                //     drawConnectors(canvasCtx, results.faceLandmarks, FACEMESH_TESSELATION, { color: '#C0C0C070', lineWidth: 1 });
+                // }
+
                 canvasCtx.restore();
             }
 
@@ -354,13 +394,13 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                             if (rShoulder && rElbow && riggedPose.RightUpperArm) {
                                 // Right Arm: Vector R_Shoulder -> R_Elbow
                                 const dz = rElbow.z - rShoulder.z; // -ve means forward
-                                // Increase sensitivity significantly (1.5 -> 5.0) to capture front reach
-                                riggedPose.RightUpperArm.y = -(dz * 5.0);
+                                // Moderate sensitivity (2.0) to balance front reach without over-rotation
+                                riggedPose.RightUpperArm.y = -(dz * 2.0);
                             }
                             if (lShoulder && lElbow && riggedPose.LeftUpperArm) {
                                 // Left Arm
                                 const dz = lElbow.z - lShoulder.z;
-                                riggedPose.LeftUpperArm.y = (dz * 5.0);
+                                riggedPose.LeftUpperArm.y = (dz * 2.0);
                             }
                         }
                         // --------------------------------------------------
@@ -369,13 +409,25 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         vrm._lastRigTime = Date.now();
 
                         // Record Data (Skip first 1s)
-                        if (propsRef.current.isRecording) {
-                            if (Date.now() - recordingStartTimeRef.current > 1000) {
+                        const isCurrentlyRecording = propsRef.current.isRecording;
+                        const timeSinceStart = Date.now() - recordingStartTimeRef.current;
+
+                        if (isCurrentlyRecording) {
+                            if (timeSinceStart > 1000) {
                                 recordedDataRef.current.push({
                                     t: Date.now(),
                                     input: riggedPose,
                                     output: finalPose
                                 });
+                                // Log every 30 frames to avoid console spam
+                                if (recordedDataRef.current.length % 30 === 1) {
+                                    console.log(`[Recording] Collecting data... ${recordedDataRef.current.length} frames`);
+                                }
+                            } else {
+                                // Only log once when waiting
+                                if (timeSinceStart > 900 && timeSinceStart < 1100) {
+                                    console.log(`[Recording] Waiting for 1s offset... (${timeSinceStart}ms elapsed)`);
+                                }
                             }
                         }
                     }
@@ -406,8 +458,12 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             lastProcessTimeRef.current = nowTime;
         };
 
+        console.log('[MotionCapturer] Registering activeResultsCallback');
         activeResultsCallback = resultsHandler;
-        return () => { activeResultsCallback = null; };
+        return () => {
+            console.log('[MotionCapturer] Unregistering activeResultsCallback');
+            activeResultsCallback = null;
+        };
     }, []);
 
     // VRM Loading Effect
@@ -450,9 +506,9 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 videoRef.current.play();
                 const loop = async () => {
                     if (isEffectDestroyed) return;
-                    const pose = poseRef.current || await getGlobalPose();
-                    poseRef.current = pose;
-                    if (videoRef.current && !videoRef.current.paused) await pose.send({ image: videoRef.current });
+                    const holistic = poseRef.current || await getGlobalHolistic();
+                    poseRef.current = holistic;
+                    if (videoRef.current && !videoRef.current.paused) await holistic.send({ image: videoRef.current });
                     animationFrameId = requestAnimationFrame(loop);
                 };
                 loop();
@@ -460,9 +516,9 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 cameraProcess = new Camera(videoRef.current, {
                     onFrame: async () => {
                         if (isEffectDestroyed) return;
-                        const pose = poseRef.current || await getGlobalPose();
-                        poseRef.current = pose;
-                        if (videoRef.current) await pose.send({ image: videoRef.current });
+                        const holistic = poseRef.current || await getGlobalHolistic();
+                        poseRef.current = holistic;
+                        if (videoRef.current) await holistic.send({ image: videoRef.current });
                     },
                     width: 640, height: 480
                 });
@@ -535,34 +591,67 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
 
     // Recording Control Effect
     useEffect(() => {
+        console.log(`[Recording Effect] isRecording=${isRecording}, bufferLength=${recordedDataRef.current.length}`);
+
         if (!isRecording && recordedDataRef.current.length > 0) {
             // Stop recording triggered -> Download
-            const stopTime = Date.now();
+            console.log("[Recording] Stop triggered, processing data...");
+            const allData = recordedDataRef.current;
 
-            // Skip last 1s
-            const filteredData = recordedDataRef.current.filter(d => d.t < stopTime - 1000);
+            if (allData.length === 0) {
+                console.log("[Recording] No data recorded.");
+                recordedDataRef.current = [];
+                return;
+            }
+
+            console.log(`[Recording] Total frames collected: ${allData.length}`);
+
+            // Get the actual time range from the recorded data
+            const firstTimestamp = allData[0].t;
+            const lastTimestamp = allData[allData.length - 1].t;
+
+            console.log(`[Recording] Time range: ${firstTimestamp} to ${lastTimestamp} (duration: ${(lastTimestamp - firstTimestamp) / 1000}s)`);
+
+            // Skip first 1s and last 1s based on actual recording timestamps
+            const startCutoff = firstTimestamp + 1000;
+            const endCutoff = lastTimestamp - 1000;
+
+            const filteredData = allData.filter(d => d.t >= startCutoff && d.t <= endCutoff);
+
+            console.log(`[Recording] After trimming: ${filteredData.length} frames`);
 
             if (filteredData.length > 0) {
+                console.log("[Recording] Creating download...");
                 const dataStr = JSON.stringify(filteredData, null, 2);
                 const blob = new Blob([dataStr], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
                 a.download = `motion-debug-log-${Date.now()}.json`;
+                a.style.display = 'none';
                 document.body.appendChild(a);
+                console.log("[Recording] Triggering download click...");
                 a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                console.log("Motion data downloaded (Trimmed start/end 1s)");
+
+                // Delay cleanup to ensure download completes
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    console.log("[Recording] Cleanup completed");
+                }, 100);
+
+                console.log(`✅ Motion data downloaded (Trimmed start/end 1s): ${filteredData.length} frames from ${allData.length} total`);
             } else {
-                console.log("Recording too short after trimming.");
+                console.log("⚠️ Recording too short after trimming (less than 2 seconds).");
             }
             recordedDataRef.current = []; // Clear buffer
         } else if (isRecording) {
             // Start recording
             recordedDataRef.current = [];
             recordingStartTimeRef.current = Date.now();
-            console.log("Recording started...");
+            console.log("🔴 Recording started...");
+        } else {
+            console.log("[Recording] Effect triggered but no action taken (not recording, buffer empty)");
         }
     }, [isRecording]);
 
