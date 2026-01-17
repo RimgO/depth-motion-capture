@@ -3,9 +3,10 @@ import { POSE_LANDMARKS, ANGLES, COORDINATES, SMOOTHING, TIMING } from '../const
 /**
  * Calculate arm rotations from 3D world landmarks
  * @param {Array} worldLandmarks - 3D world landmarks with x, y, z coordinates
+ * @param {Object} handLandmarks - Hand landmarks from MediaPipe (optional, for better twist detection)
  * @returns {Object} Rigged pose with arm rotations
  */
-export function calculateArmRotations(worldLandmarks) {
+export function calculateArmRotations(worldLandmarks, handLandmarks = null) {
     const lm = worldLandmarks;
     
     // Define landmarks
@@ -59,17 +60,66 @@ export function calculateArmRotations(worldLandmarks) {
         const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
         
         // Y-axis rotation: Internal/external rotation (arm twist)
-        // Calculate rotation based on forearm orientation
-        // Angle of forearm in XZ plane relative to upper arm
-        const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
-        const upperArmAngleXZ = Math.atan2(dx, dz);
-        // Twist is the difference between forearm and upper arm horizontal angles
-        let twistAngle = forearmAngleXZ - upperArmAngleXZ;
-        // Normalize to [-π, π]
-        if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
-        if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
-        // Apply with scaling for natural movement
-        riggedPose.RightUpperArm.y = twistAngle * 0.5;
+        // Use hand landmarks if available for more accurate twist detection
+        if (handLandmarks?.rightHandLandmarks && handLandmarks.rightHandLandmarks.length > 0) {
+            // Use index and pinky knuckles to determine hand orientation
+            const indexKnuckle = handLandmarks.rightHandLandmarks[5]; // INDEX_FINGER_MCP
+            const pinkyKnuckle = handLandmarks.rightHandLandmarks[17]; // PINKY_MCP
+            
+            if (indexKnuckle && pinkyKnuckle) {
+                // Vector across palm (from pinky to index)
+                const palmVecX = indexKnuckle.x - pinkyKnuckle.x;
+                const palmVecY = indexKnuckle.y - pinkyKnuckle.y;
+                const palmVecZ = indexKnuckle.z - pinkyKnuckle.z;
+                
+                // Normalize palm vector
+                const palmLen = Math.sqrt(palmVecX*palmVecX + palmVecY*palmVecY + palmVecZ*palmVecZ);
+                if (palmLen > 0.01) {
+                    const px = palmVecX / palmLen;
+                    const py = palmVecY / palmLen;
+                    const pz = palmVecZ / palmLen;
+                    
+                    // Normalize forearm vector (elbow to wrist)
+                    if (lowerLen > 0.01) {
+                        const fx = lowerDx / lowerLen;
+                        const fy = lowerDy / lowerLen;
+                        const fz = lowerDz / lowerLen;
+                        
+                        // Project palm vector onto plane perpendicular to forearm
+                        // This removes the component along the forearm axis
+                        const dot = px * fx + py * fy + pz * fz;
+                        const perpPalmX = px - dot * fx;
+                        const perpPalmY = py - dot * fy;
+                        const perpPalmZ = pz - dot * fz;
+                        
+                        // Renormalize projected vector
+                        const perpLen = Math.sqrt(perpPalmX*perpPalmX + perpPalmY*perpPalmY + perpPalmZ*perpPalmZ);
+                        if (perpLen > 0.01) {
+                            // Calculate twist angle using only Y component of perpendicular palm vector
+                            // This isolates the pronation/supination rotation
+                            const twistAngle = Math.asin(Math.max(-1, Math.min(1, perpPalmY / perpLen)));
+                            riggedPose.RightUpperArm.y = -twistAngle * 1.2; // Reduced scale for smoother motion
+                        } else {
+                            riggedPose.RightUpperArm.y = 0;
+                        }
+                    } else {
+                        riggedPose.RightUpperArm.y = 0;
+                    }
+                } else {
+                    riggedPose.RightUpperArm.y = 0;
+                }
+            } else {
+                riggedPose.RightUpperArm.y = 0;
+            }
+        } else {
+            // Fallback: use forearm orientation
+            const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
+            const upperArmAngleXZ = Math.atan2(dx, dz);
+            let twistAngle = forearmAngleXZ - upperArmAngleXZ;
+            if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
+            if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
+            riggedPose.RightUpperArm.y = twistAngle * 0.5;
+        }
         
         if (upperLen > 0 && lowerLen > 0) {
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
@@ -113,17 +163,66 @@ export function calculateArmRotations(worldLandmarks) {
         const lowerLen = Math.sqrt(lowerDx*lowerDx + lowerDy*lowerDy + lowerDz*lowerDz);
         
         // Y-axis rotation: Internal/external rotation (arm twist)
-        // Calculate rotation based on forearm orientation
-        // Angle of forearm in XZ plane relative to upper arm
-        const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
-        const upperArmAngleXZ = Math.atan2(dx, dz);
-        // Twist is the difference between forearm and upper arm horizontal angles
-        let twistAngle = forearmAngleXZ - upperArmAngleXZ;
-        // Normalize to [-π, π]
-        if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
-        if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
-        // Apply with scaling for natural movement (inverted for left arm)
-        riggedPose.LeftUpperArm.y = -twistAngle * 0.5;
+        // Use hand landmarks if available for more accurate twist detection
+        if (handLandmarks?.leftHandLandmarks && handLandmarks.leftHandLandmarks.length > 0) {
+            // Use index and pinky knuckles to determine hand orientation
+            const indexKnuckle = handLandmarks.leftHandLandmarks[5]; // INDEX_FINGER_MCP
+            const pinkyKnuckle = handLandmarks.leftHandLandmarks[17]; // PINKY_MCP
+            
+            if (indexKnuckle && pinkyKnuckle) {
+                // Vector across palm (from pinky to index)
+                const palmVecX = indexKnuckle.x - pinkyKnuckle.x;
+                const palmVecY = indexKnuckle.y - pinkyKnuckle.y;
+                const palmVecZ = indexKnuckle.z - pinkyKnuckle.z;
+                
+                // Normalize palm vector
+                const palmLen = Math.sqrt(palmVecX*palmVecX + palmVecY*palmVecY + palmVecZ*palmVecZ);
+                if (palmLen > 0.01) {
+                    const px = palmVecX / palmLen;
+                    const py = palmVecY / palmLen;
+                    const pz = palmVecZ / palmLen;
+                    
+                    // Normalize forearm vector (elbow to wrist)
+                    if (lowerLen > 0.01) {
+                        const fx = lowerDx / lowerLen;
+                        const fy = lowerDy / lowerLen;
+                        const fz = lowerDz / lowerLen;
+                        
+                        // Project palm vector onto plane perpendicular to forearm
+                        // This removes the component along the forearm axis
+                        const dot = px * fx + py * fy + pz * fz;
+                        const perpPalmX = px - dot * fx;
+                        const perpPalmY = py - dot * fy;
+                        const perpPalmZ = pz - dot * fz;
+                        
+                        // Renormalize projected vector
+                        const perpLen = Math.sqrt(perpPalmX*perpPalmX + perpPalmY*perpPalmY + perpPalmZ*perpPalmZ);
+                        if (perpLen > 0.01) {
+                            // Calculate twist angle using only Y component of perpendicular palm vector
+                            // This isolates the pronation/supination rotation
+                            const twistAngle = Math.asin(Math.max(-1, Math.min(1, perpPalmY / perpLen)));
+                            riggedPose.LeftUpperArm.y = twistAngle * 1.2; // Reduced scale (inverted for left arm)
+                        } else {
+                            riggedPose.LeftUpperArm.y = 0;
+                        }
+                    } else {
+                        riggedPose.LeftUpperArm.y = 0;
+                    }
+                } else {
+                    riggedPose.LeftUpperArm.y = 0;
+                }
+            } else {
+                riggedPose.LeftUpperArm.y = 0;
+            }
+        } else {
+            // Fallback: use forearm orientation
+            const forearmAngleXZ = Math.atan2(lowerDx, lowerDz);
+            const upperArmAngleXZ = Math.atan2(dx, dz);
+            let twistAngle = forearmAngleXZ - upperArmAngleXZ;
+            if (twistAngle > Math.PI) twistAngle -= 2 * Math.PI;
+            if (twistAngle < -Math.PI) twistAngle += 2 * Math.PI;
+            riggedPose.LeftUpperArm.y = -twistAngle * 0.5;
+        }
         
         if (upperLen > 0 && lowerLen > 0) {
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
@@ -200,6 +299,7 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
     if (!previousPose) return currentPose;
     
     const smoothingFactor = SMOOTHING.POSE_TEMPORAL;
+    const yAxisSmoothingFactor = 0.1; // Much faster response for Y-axis rotation (arm twist)
     const smoothedPose = JSON.parse(JSON.stringify(currentPose)); // Deep copy
     
     const smoothRotation = (current, previous, key) => {
@@ -208,8 +308,12 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
         const parts = ['x', 'y', 'z'];
         parts.forEach(axis => {
             if (typeof current[key][axis] === 'number' && typeof previous[key][axis] === 'number') {
+                // Use lower smoothing factor for Y-axis rotation (arm twist) to improve responsiveness
+                const factor = (axis === 'y' && (key === 'RightUpperArm' || key === 'LeftUpperArm')) 
+                    ? yAxisSmoothingFactor 
+                    : smoothingFactor;
                 smoothedPose[key][axis] = previous[key][axis] + 
-                    (current[key][axis] - previous[key][axis]) * (1 - smoothingFactor);
+                    (current[key][axis] - previous[key][axis]) * (1 - factor);
             }
         });
     };

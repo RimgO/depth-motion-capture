@@ -300,12 +300,56 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             setRotation('leftShoulder', rot);
         }
 
-        // Arms - Direct application (scaling already done in geometric calculation)
+        // Arms - Y-axis (twist) needs faster response
         if (riggedPose.RightUpperArm) {
-            setRotation('rightUpperArm', riggedPose.RightUpperArm);
+            const rot = { ...riggedPose.RightUpperArm };
+            // Apply Y-axis rotation with higher lerp for faster response
+            if (rot.y !== undefined) {
+                const bone = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+                if (bone) {
+                    // Apply Y-axis with less smoothing for immediate twist feedback
+                    const yQuat = new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(0, rot.y, 0, 'XYZ')
+                    );
+                    bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
+                    
+                    // Apply X and Z normally
+                    const xzQuat = new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
+                    );
+                    bone.quaternion.multiply(xzQuat);
+                    appliedPose.rightUpperArm = rot;
+                } else {
+                    setRotation('rightUpperArm', rot);
+                }
+            } else {
+                setRotation('rightUpperArm', rot);
+            }
         }
         if (riggedPose.LeftUpperArm) {
-            setRotation('leftUpperArm', riggedPose.LeftUpperArm);
+            const rot = { ...riggedPose.LeftUpperArm };
+            // Apply Y-axis rotation with higher lerp for faster response
+            if (rot.y !== undefined) {
+                const bone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+                if (bone) {
+                    // Apply Y-axis with less smoothing for immediate twist feedback
+                    const yQuat = new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(0, rot.y, 0, 'XYZ')
+                    );
+                    bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
+                    
+                    // Apply X and Z normally
+                    const xzQuat = new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
+                    );
+                    bone.quaternion.multiply(xzQuat);
+                    appliedPose.leftUpperArm = rot;
+                } else {
+                    setRotation('leftUpperArm', rot);
+                }
+            } else {
+                setRotation('leftUpperArm', rot);
+            }
         }
 
         if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
@@ -444,8 +488,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                     let riggedPose = null;
                     
                     if (worldLandmarks && worldLandmarks.length >= 17) {
+                        // Prepare hand landmarks for arm twist detection
+                        const handLandmarksForArm = {
+                            leftHandLandmarks: results.leftHandLandmarks || null,
+                            rightHandLandmarks: results.rightHandLandmarks || null
+                        };
+                        
                         // Calculate arm and body rotations using refactored modules
-                        const armPose = calculateArmRotations(worldLandmarks);
+                        const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm);
                         const bodyPose = calculateBodyRotations(worldLandmarks);
                         
                         // Calculate hand rotations (finger bones)
