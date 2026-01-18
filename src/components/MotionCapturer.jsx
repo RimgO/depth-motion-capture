@@ -613,6 +613,16 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         // Add face expressions to riggedPose
                         if (facePose) {
                             riggedPose.Face = facePose;
+                            
+                            // Log eye gaze data every 60 frames for debugging
+                            if (Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+                                console.log('[Eye Gaze]', {
+                                    horizontal: facePose.eyeGazeX?.toFixed(3),
+                                    vertical: facePose.eyeGazeY?.toFixed(3),
+                                    blinkLeft: facePose.blinkLeft?.toFixed(3),
+                                    blinkRight: facePose.blinkRight?.toFixed(3)
+                                });
+                            }
                         }
                     }
                     

@@ -64,6 +64,54 @@ export function draw2DOverlay(overlayRef, results) {
         drawLandmarks(canvasCtx, results.rightHandLandmarks, { color: '#ff00ff', lineWidth: 1, radius: 2 });
     }
 
+    // Draw eye gaze visualization
+    if (results.faceLandmarks && results.faceLandmarks.length >= 478) {
+        const width = overlayRef.current.width;
+        const height = overlayRef.current.height;
+        
+        // Iris centers (MediaPipe provides these at indices 468-478)
+        const leftIris = results.faceLandmarks[468]; // Left iris center
+        const rightIris = results.faceLandmarks[473]; // Right iris center
+        
+        // Eye corners for reference
+        const leftEyeInner = results.faceLandmarks[133];
+        const leftEyeOuter = results.faceLandmarks[33];
+        const rightEyeInner = results.faceLandmarks[362];
+        const rightEyeOuter = results.faceLandmarks[263];
+        
+        // Draw iris points
+        if (leftIris) {
+            canvasCtx.fillStyle = '#00ffff';
+            canvasCtx.beginPath();
+            canvasCtx.arc(leftIris.x * width, leftIris.y * height, 3, 0, 2 * Math.PI);
+            canvasCtx.fill();
+        }
+        if (rightIris) {
+            canvasCtx.fillStyle = '#00ffff';
+            canvasCtx.beginPath();
+            canvasCtx.arc(rightIris.x * width, rightIris.y * height, 3, 0, 2 * Math.PI);
+            canvasCtx.fill();
+        }
+        
+        // Draw eye boxes
+        if (leftEyeInner && leftEyeOuter) {
+            canvasCtx.strokeStyle = '#ffff00';
+            canvasCtx.lineWidth = 1;
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(leftEyeInner.x * width, leftEyeInner.y * height);
+            canvasCtx.lineTo(leftEyeOuter.x * width, leftEyeOuter.y * height);
+            canvasCtx.stroke();
+        }
+        if (rightEyeInner && rightEyeOuter) {
+            canvasCtx.strokeStyle = '#ffff00';
+            canvasCtx.lineWidth = 1;
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(rightEyeInner.x * width, rightEyeInner.y * height);
+            canvasCtx.lineTo(rightEyeOuter.x * width, rightEyeOuter.y * height);
+            canvasCtx.stroke();
+        }
+    }
+
     canvasCtx.restore();
 }
 
