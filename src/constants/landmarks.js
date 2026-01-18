@@ -256,10 +256,12 @@ export const SMOOTHING = {
     LANDMARK_FILTER: 0.8,
     
     // Temporal smoothing for rigged pose rotations
-    POSE_TEMPORAL: 0.5,
+    // Reduced from 0.5 to 0.3 for better responsiveness
+    POSE_TEMPORAL: 0.3,
     
     // Quaternion slerp amount for VRM bone application
-    VRM_BONE_SLERP: 0.8,
+    // Increased from 0.8 to 0.9 for faster tracking
+    VRM_BONE_SLERP: 0.9,
     
     // Shoulder rotation dampening
     SHOULDER_Z_DAMPEN: 0.5
@@ -329,10 +331,12 @@ export const COORDINATES = {
  */
 export const ANGLES = {
     // Pi/2 offset for VRM arm Z-axis rotation
-    ARM_Z_OFFSET: Math.PI / 2,
+    // Increased from π/2 to π/2 + 0.4 to raise arm baseline position
+    ARM_Z_OFFSET: Math.PI / 2 + 0.4,
     
     // X-axis rotation scale for arm tilt
-    ARM_X_SCALE: 0.5,
+    // Increased to 1.2 for full forward/backward range
+    ARM_X_SCALE: 1.2,
     
     // Degrees to radians conversion
     DEG_TO_RAD: Math.PI / 180,
