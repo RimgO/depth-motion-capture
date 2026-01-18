@@ -266,7 +266,7 @@ export function calculateBodyRotations(worldLandmarks) {
         z: (rHip.z + lHip.z) / 2
     };
     
-    // Head/Neck rotation calculation - Step 1: Y-axis rotation only
+    // Head/Neck rotation calculation - Step 2: Y and X axis rotations
     const nose = lm[POSE_LANDMARKS.NOSE];
     const leftEar = lm[POSE_LANDMARKS.LEFT_EAR];
     const rightEar = lm[POSE_LANDMARKS.RIGHT_EAR];
@@ -277,10 +277,12 @@ export function calculateBodyRotations(worldLandmarks) {
     if (nose && leftEar && rightEar) {
         // Calculate ear center (back of head reference)
         const earCenterX = (leftEar.x + rightEar.x) / 2;
+        const earCenterY = (leftEar.y + rightEar.y) / 2;
         const earCenterZ = (leftEar.z + rightEar.z) / 2;
         
-        // Forward vector from ear center to nose (XZ plane only)
+        // Forward vector from ear center to nose
         const dx = nose.x - earCenterX;
+        const dy = nose.y - earCenterY;
         const dz = nose.z - earCenterZ;
         
         // Y-axis rotation (yaw): left/right head turn
@@ -288,15 +290,21 @@ export function calculateBodyRotations(worldLandmarks) {
         // VRM scene is rotated 180°, so forward is inverted
         const headYaw = Math.atan2(dx, -dz);
         
+        // X-axis rotation (pitch): up/down head tilt
+        // MediaPipe: Y+ is down
+        // Calculate angle from horizontal plane
+        const horizontalDist = Math.sqrt(dx*dx + dz*dz);
+        const headPitch = Math.atan2(dy, horizontalDist);
+        
         // Split between neck (60%) and head (40%)
         neckRotation = {
-            x: 0,
+            x: headPitch * 0.6,
             y: headYaw * 0.6,
             z: 0
         };
         
         headRotation = {
-            x: 0,
+            x: headPitch * 0.4,
             y: headYaw * 0.4,
             z: 0
         };
