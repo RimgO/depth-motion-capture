@@ -43,8 +43,12 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
         // MediaPipe: Y increases downward, so -dy for upward direction
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
         const angleZ = Math.atan2(horizontalDist, -dy);
-        // Note: @pixiv/three-vrm handles VRM0.x/VRM1.0 coordinate differences internally
-        riggedPose.RightUpperArm.z = -(angleZ - ANGLES.ARM_Z_OFFSET);
+        // VRM version-dependent rotation
+        // Expand range: subtract offset to allow full arm raise
+        const versionStr = String(vrmVersion);
+        const isVrm0 = versionStr.startsWith('0');
+        const armRotation = angleZ - ANGLES.ARM_Z_OFFSET;
+        riggedPose.RightUpperArm.z = isVrm0 ? -armRotation : armRotation;
         
         // X-axis rotation: Forward/backward tilt
         if (horizontalDist > 0) {
@@ -127,8 +131,8 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
             const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / (upperLen * lowerLen))));
             // elbowAngle: 0=straight (vectors aligned), π=fully bent (vectors opposite)
-            // VRM: 0=straight, positive=bent (inverted for right arm)
-            riggedPose.RightLowerArm.z = elbowAngle;
+            // VRM: 0=straight, positive=bent
+            riggedPose.RightLowerArm.z = -elbowAngle; // Negative for correct bend direction
         }
     }
     
@@ -142,8 +146,11 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
         // Mirrored from right arm
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
         const angleZ = Math.atan2(horizontalDist, -dy);
-        // Note: @pixiv/three-vrm handles VRM0.x/VRM1.0 coordinate differences internally
-        riggedPose.LeftUpperArm.z = (angleZ - ANGLES.ARM_Z_OFFSET);
+        // VRM version-dependent rotation (mirrored from right)
+        const versionStr = String(vrmVersion);
+        const isVrm0 = versionStr.startsWith('0');
+        const armRotation = angleZ - ANGLES.ARM_Z_OFFSET;
+        riggedPose.LeftUpperArm.z = isVrm0 ? armRotation : -armRotation;
         
         // X-axis rotation: Forward/backward tilt  
         if (horizontalDist > 0) {
@@ -226,7 +233,7 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
             const dot = dx*lowerDx + dy*lowerDy + dz*lowerDz;
             const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / (upperLen * lowerLen))));
             // Same calculation as right arm
-            riggedPose.LeftLowerArm.z = -elbowAngle;
+            riggedPose.LeftLowerArm.z = elbowAngle; // Positive for correct bend direction
         }
     }
     
