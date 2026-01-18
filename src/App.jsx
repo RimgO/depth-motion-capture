@@ -10,7 +10,11 @@ function App() {
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
+  const [debugLogging, setDebugLogging] = useState({
+    holistic: false,
+    pose: false,
+    eyeGaze: false
+  });
   const [captureSettings, setCaptureSettings] = useState({
     captureLowerBody: true
   });
@@ -144,14 +148,48 @@ function App() {
               <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-3">
                 <Settings size={14} /> Capture Settings
               </h2>
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-white/80">Lower Body Capture</span>
-                <button
-                  onClick={() => setCaptureSettings(prev => ({ ...prev, captureLowerBody: !prev.captureLowerBody }))}
-                  className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings.captureLowerBody ? 'bg-cyan-500' : 'bg-white/10'}`}
-                >
-                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${captureSettings.captureLowerBody ? 'left-4.5' : 'left-0.5'}`} style={{ left: captureSettings.captureLowerBody ? 'calc(100% - 14px)' : '2px' }} />
-                </button>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-white/80">Lower Body Capture</span>
+                  <button
+                    onClick={() => setCaptureSettings(prev => ({ ...prev, captureLowerBody: !prev.captureLowerBody }))}
+                    className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings.captureLowerBody ? 'bg-cyan-500' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${captureSettings.captureLowerBody ? 'left-4.5' : 'left-0.5'}`} style={{ left: captureSettings.captureLowerBody ? 'calc(100% - 14px)' : '2px' }} />
+                  </button>
+                </div>
+                <div className="pt-2 border-t border-white/10">
+                  <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider mb-2">Debug Logging</div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Holistic</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, holistic: !prev.holistic }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.holistic ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.holistic ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Pose</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, pose: !prev.pose }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.pose ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.pose ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Eye Gaze</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, eyeGaze: !prev.eyeGaze }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.eyeGaze ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.eyeGaze ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

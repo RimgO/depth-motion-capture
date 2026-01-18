@@ -27,7 +27,11 @@ import { calculateFaceExpressions } from '../utils/faceCalculations.js';
 let globalHolisticInstance = null;
 let globalHolisticPromise = null;
 let activeResultsCallback = null;
-let globalDebugLogging = false; // Global flag for debug logging
+let globalDebugLogging = {
+    holistic: false,
+    pose: false,
+    eyeGaze: false
+}; // Global flags for different log categories
 
 const getGlobalHolistic = () => {
     if (globalHolisticPromise) return globalHolisticPromise;
@@ -52,7 +56,7 @@ const getGlobalHolistic = () => {
 
         holistic.onResults((results) => {
             // Debug: Check what results we're getting (if debug logging enabled)
-            if (globalDebugLogging && Math.random() < 0.05) {
+            if (globalDebugLogging.holistic && Math.random() < 0.05) {
                 console.log('[Holistic onResults]', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
@@ -92,7 +96,7 @@ if (typeof window !== 'undefined') {
     window.addEventListener('error', handleNullError);
 }
 
-const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording, captureSettings = {}, debugLogging = false, onDebugLoggingChange }) => {
+const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording, captureSettings = {}, debugLogging = { holistic: false, pose: false, eyeGaze: false }, onDebugLoggingChange }) => {
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
     const videoRef = useRef(null);
@@ -119,7 +123,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     
     // Initialize debug logging on mount
     useEffect(() => {
-        globalDebugLogging = debugLogging;
+        globalDebugLogging = { ...debugLogging };
     }, []); // Run once on mount
 
     const [loading, setLoading] = useState(false);
@@ -511,14 +515,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     useEffect(() => {
         const resultsHandler = async (results) => {
             if (!results) {
-                if (globalDebugLogging) {
+                if (globalDebugLogging.pose) {
                     console.log('[resultsHandler] Called but no results');
                 }
                 return;
             }
 
             // Log every 60 frames to avoid spam (if debug logging enabled)
-            if (globalDebugLogging && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+            if (globalDebugLogging.pose && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
                 console.log('[resultsHandler] Processing pose data', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
@@ -624,7 +628,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                             riggedPose.Face = facePose;
                             
                             // Log eye gaze data every 60 frames for debugging (if enabled)
-                            if (globalDebugLogging && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+                            if (globalDebugLogging.eyeGaze && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
                                 console.log('[Eye Gaze]', {
                                     horizontal: facePose.eyeGazeX?.toFixed(3),
                                     vertical: facePose.eyeGazeY?.toFixed(3),
