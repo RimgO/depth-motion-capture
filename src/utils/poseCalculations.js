@@ -305,6 +305,8 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
     
     const smoothingFactor = SMOOTHING.POSE_TEMPORAL;
     const yAxisSmoothingFactor = 0.1; // Much faster response for Y-axis rotation (arm twist)
+    const blinkSmoothingFactor = 0.2; // Fast response for blinks (need to be responsive)
+    const mouthSmoothingFactor = 0.4; // Medium smoothing for mouth shapes
     const smoothedPose = JSON.parse(JSON.stringify(currentPose)); // Deep copy
     
     const smoothRotation = (current, previous, key) => {
@@ -322,6 +324,27 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
             }
         });
     };
+
+    // Smooth face expressions (BlendShape values 0-1)
+    if (currentPose.Face && previousPose.Face) {
+        smoothedPose.Face = {};
+        
+        // Blink values - use fast smoothing for responsive blinks
+        ['blinkLeft', 'blinkRight'].forEach(key => {
+            if (typeof currentPose.Face[key] === 'number' && typeof previousPose.Face[key] === 'number') {
+                smoothedPose.Face[key] = previousPose.Face[key] + 
+                    (currentPose.Face[key] - previousPose.Face[key]) * (1 - blinkSmoothingFactor);
+            }
+        });
+        
+        // Mouth shapes - use medium smoothing for balance
+        ['mouthA', 'mouthI', 'mouthU', 'mouthE', 'mouthO'].forEach(key => {
+            if (typeof currentPose.Face[key] === 'number' && typeof previousPose.Face[key] === 'number') {
+                smoothedPose.Face[key] = previousPose.Face[key] + 
+                    (currentPose.Face[key] - previousPose.Face[key]) * (1 - mouthSmoothingFactor);
+            }
+        });
+    }
 
     // Smooth all body parts
     const bodyParts = [

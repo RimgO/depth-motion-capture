@@ -20,6 +20,7 @@ import {
 } from '../utils/poseCalculations.js';
 import { calculateAllMetrics } from '../utils/metricsCalculator.js';
 import { calculateHandRotations } from '../utils/handCalculations.js';
+import { calculateFaceExpressions } from '../utils/faceCalculations.js';
 
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
@@ -404,6 +405,75 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
             if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
         }
+
+        // Face Expressions (BlendShapes)
+        if (riggedPose.Face) {
+            const versionStr = String(vrmRef.current?.meta?.metaVersion || '1');
+            const isVrm1 = versionStr === '1' || versionStr.startsWith('1.');
+
+            if (isVrm1 && vrm.expressionManager) {
+                // VRM 1.0: Use expressionManager
+                const expressionManager = vrm.expressionManager;
+
+                // Blink
+                if (riggedPose.Face.blinkLeft !== undefined) {
+                    expressionManager.setValue('blinkLeft', riggedPose.Face.blinkLeft);
+                }
+                if (riggedPose.Face.blinkRight !== undefined) {
+                    expressionManager.setValue('blinkRight', riggedPose.Face.blinkRight);
+                }
+
+                // Mouth shapes (AIUEO)
+                if (riggedPose.Face.mouthA !== undefined) {
+                    expressionManager.setValue('aa', riggedPose.Face.mouthA);
+                }
+                if (riggedPose.Face.mouthI !== undefined) {
+                    expressionManager.setValue('ih', riggedPose.Face.mouthI);
+                }
+                if (riggedPose.Face.mouthU !== undefined) {
+                    expressionManager.setValue('ou', riggedPose.Face.mouthU);
+                }
+                if (riggedPose.Face.mouthE !== undefined) {
+                    expressionManager.setValue('ee', riggedPose.Face.mouthE);
+                }
+                if (riggedPose.Face.mouthO !== undefined) {
+                    expressionManager.setValue('oh', riggedPose.Face.mouthO);
+                }
+
+                appliedPose.Face = riggedPose.Face;
+            } else if (vrm.blendShapeProxy) {
+                // VRM 0.x: Use blendShapeProxy
+                const blendShapeProxy = vrm.blendShapeProxy;
+
+                // Blink
+                if (riggedPose.Face.blinkLeft !== undefined) {
+                    blendShapeProxy.setValue('blink_l', riggedPose.Face.blinkLeft);
+                }
+                if (riggedPose.Face.blinkRight !== undefined) {
+                    blendShapeProxy.setValue('blink_r', riggedPose.Face.blinkRight);
+                }
+
+                // Mouth shapes (AIUEO)
+                if (riggedPose.Face.mouthA !== undefined) {
+                    blendShapeProxy.setValue('a', riggedPose.Face.mouthA);
+                }
+                if (riggedPose.Face.mouthI !== undefined) {
+                    blendShapeProxy.setValue('i', riggedPose.Face.mouthI);
+                }
+                if (riggedPose.Face.mouthU !== undefined) {
+                    blendShapeProxy.setValue('u', riggedPose.Face.mouthU);
+                }
+                if (riggedPose.Face.mouthE !== undefined) {
+                    blendShapeProxy.setValue('e', riggedPose.Face.mouthE);
+                }
+                if (riggedPose.Face.mouthO !== undefined) {
+                    blendShapeProxy.setValue('o', riggedPose.Face.mouthO);
+                }
+
+                appliedPose.Face = riggedPose.Face;
+            }
+        }
+
         return appliedPose;
     };
 
@@ -511,8 +581,16 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         // Calculate hand rotations (finger bones)
                         const handPose = calculateHandRotations(results);
                         
-                        // Merge poses (including hand rotations)
+                        // Calculate face expressions (BlendShapes)
+                        const facePose = results.faceLandmarks ? calculateFaceExpressions(results.faceLandmarks) : null;
+                        
+                        // Merge poses (including hand and face)
                         riggedPose = mergeRiggedPose(armPose, bodyPose, handPose);
+                        
+                        // Add face expressions to riggedPose
+                        if (facePose) {
+                            riggedPose.Face = facePose;
+                        }
                     }
                     
                     if (riggedPose) {

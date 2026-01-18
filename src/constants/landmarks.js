@@ -95,6 +95,91 @@ export const HAND_LANDMARKS = {
 };
 
 /**
+ * MediaPipe Face Landmark Indices (468 points)
+ * Reference: https://google.github.io/mediapipe/solutions/face_mesh.html
+ * Key landmarks for facial expression detection
+ */
+export const FACE_LANDMARKS = {
+    // Left Eye (for blink detection)
+    LEFT_EYE_UPPER: 159,
+    LEFT_EYE_LOWER: 145,
+    LEFT_EYE_INNER: 133,
+    LEFT_EYE_OUTER: 33,
+    LEFT_EYE_TOP: 159,
+    LEFT_EYE_BOTTOM: 23,
+    
+    // Right Eye (for blink detection)
+    RIGHT_EYE_UPPER: 386,
+    RIGHT_EYE_LOWER: 374,
+    RIGHT_EYE_INNER: 362,
+    RIGHT_EYE_OUTER: 263,
+    RIGHT_EYE_TOP: 386,
+    RIGHT_EYE_BOTTOM: 253,
+    
+    // Mouth (for AIUEO vowel shapes)
+    MOUTH_TOP: 13,
+    MOUTH_BOTTOM: 14,
+    MOUTH_LEFT: 61,
+    MOUTH_RIGHT: 291,
+    UPPER_LIP_TOP: 0,
+    LOWER_LIP_BOTTOM: 17,
+    MOUTH_LEFT_CORNER: 61,
+    MOUTH_RIGHT_CORNER: 291,
+    
+    // Inner mouth
+    INNER_MOUTH_TOP: 13,
+    INNER_MOUTH_BOTTOM: 14,
+    
+    // Iris (for eye gaze tracking)
+    LEFT_IRIS_CENTER: 468,
+    RIGHT_IRIS_CENTER: 473,
+    
+    // Face outline (for head orientation)
+    FACE_LEFT: 234,
+    FACE_RIGHT: 454,
+    FACE_TOP: 10,
+    FACE_BOTTOM: 152
+};
+
+/**
+ * VRM BlendShape Names
+ * Mapping between calculation results and VRM expression names
+ */
+export const VRM_BLENDSHAPE_NAMES = {
+    // VRM 1.0 Expression Names
+    V1: {
+        BLINK_LEFT: 'blinkLeft',
+        BLINK_RIGHT: 'blinkRight',
+        BLINK: 'blink',
+        MOUTH_A: 'aa',      // "あ" mouth open
+        MOUTH_I: 'ih',      // "い" smile/wide
+        MOUTH_U: 'ou',      // "う" lips forward
+        MOUTH_E: 'ee',      // "え" slight smile
+        MOUTH_O: 'oh',      // "お" mouth O shape
+        LOOK_LEFT: 'lookLeft',
+        LOOK_RIGHT: 'lookRight',
+        LOOK_UP: 'lookUp',
+        LOOK_DOWN: 'lookDown'
+    },
+    
+    // VRM 0.x BlendShape Preset Names (from VRMSchema)
+    V0: {
+        BLINK_L: 'blink_l',
+        BLINK_R: 'blink_r',
+        BLINK: 'blink',
+        A: 'a',
+        I: 'i',
+        U: 'u',
+        E: 'e',
+        O: 'o',
+        LOOKUP: 'lookup',
+        LOOKDOWN: 'lookdown',
+        LOOKLEFT: 'lookleft',
+        LOOKRIGHT: 'lookright'
+    }
+};
+
+/**
  * VRM Hand Bone Names
  * Maps to VRM Humanoid bone structure
  */
