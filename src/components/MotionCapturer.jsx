@@ -27,6 +27,7 @@ import { calculateFaceExpressions } from '../utils/faceCalculations.js';
 let globalHolisticInstance = null;
 let globalHolisticPromise = null;
 let activeResultsCallback = null;
+let globalDebugLogging = false; // Global flag for debug logging
 
 const getGlobalHolistic = () => {
     if (globalHolisticPromise) return globalHolisticPromise;
@@ -50,8 +51,8 @@ const getGlobalHolistic = () => {
         await holistic.initialize();
 
         holistic.onResults((results) => {
-            // Debug: Check what results we're getting
-            if (Math.random() < 0.05) {
+            // Debug: Check what results we're getting (if debug logging enabled)
+            if (globalDebugLogging && Math.random() < 0.05) {
                 console.log('[Holistic onResults]', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
@@ -91,7 +92,7 @@ if (typeof window !== 'undefined') {
     window.addEventListener('error', handleNullError);
 }
 
-const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording }) => {
+const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording, captureSettings = {}, debugLogging = false, onDebugLoggingChange }) => {
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
     const videoRef = useRef(null);
@@ -103,7 +104,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     const poseRef = useRef(null);
     const cameraRef = useRef(null);
     const rendererRef = useRef(null);
-    const propsRef = useRef({ onActionDetected, isRecording });
+    const propsRef = useRef({ onActionDetected, isRecording, captureSettings });
     const recordedDataRef = useRef([]);
     
     // Low-pass filters for each landmark
@@ -112,8 +113,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
 
     // Keep props fresh for the results handler
     useEffect(() => {
-        propsRef.current = { onActionDetected, isRecording };
-    }, [onActionDetected, isRecording]);
+        propsRef.current = { onActionDetected, isRecording, captureSettings };
+        globalDebugLogging = debugLogging; // Also update here
+    }, [onActionDetected, isRecording, captureSettings, debugLogging]);
+    
+    // Initialize debug logging on mount
+    useEffect(() => {
+        globalDebugLogging = debugLogging;
+    }, []); // Run once on mount
 
     const [loading, setLoading] = useState(false);
     const [hasVrm, setHasVrm] = useState(false);
@@ -504,12 +511,14 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     useEffect(() => {
         const resultsHandler = async (results) => {
             if (!results) {
-                console.log('[resultsHandler] Called but no results');
+                if (globalDebugLogging) {
+                    console.log('[resultsHandler] Called but no results');
+                }
                 return;
             }
 
-            // Log every 60 frames to avoid spam
-            if (Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+            // Log every 60 frames to avoid spam (if debug logging enabled)
+            if (globalDebugLogging && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
                 console.log('[resultsHandler] Processing pose data', {
                     hasPoseLandmarks: !!results.poseLandmarks,
                     hasPoseWorldLandmarks: !!results.poseWorldLandmarks,
@@ -614,8 +623,8 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         if (facePose) {
                             riggedPose.Face = facePose;
                             
-                            // Log eye gaze data every 60 frames for debugging
-                            if (Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+                            // Log eye gaze data every 60 frames for debugging (if enabled)
+                            if (globalDebugLogging && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
                                 console.log('[Eye Gaze]', {
                                     horizontal: facePose.eyeGazeX?.toFixed(3),
                                     vertical: facePose.eyeGazeY?.toFixed(3),
@@ -1066,6 +1075,20 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                             {showNeuralPanel ? <EyeOff size={12} /> : <Eye size={12} />}
                             <span>Panel</span>
                         </button>
+                        {onDebugLoggingChange && (
+                            <button
+                                onClick={() => onDebugLoggingChange(!debugLogging)}
+                                className={`px-3 py-1 backdrop-blur-xl hover:bg-white/10 transition-colors text-[10px] font-bold rounded-full uppercase border flex items-center gap-2 pointer-events-auto ${
+                                    debugLogging 
+                                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50' 
+                                        : 'bg-white/5 text-white/60 border-white/10 hover:text-cyan-400'
+                                }`}
+                                title={debugLogging ? 'Disable Debug Logging' : 'Enable Debug Logging'}
+                            >
+                                <Activity size={12} />
+                                <span>Logs</span>
+                            </button>
+                        )}
                     </div>
 
                     <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_4px,3px_100%]" />

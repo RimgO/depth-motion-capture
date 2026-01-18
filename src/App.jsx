@@ -10,6 +10,7 @@ function App() {
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
   const [captureSettings, setCaptureSettings] = useState({
     captureLowerBody: true
   });
@@ -258,6 +259,8 @@ function App() {
           onClearVideo={() => setVideoFile(null)}
           isRecording={isRecording}
           captureSettings={captureSettings}
+          debugLogging={debugLogging}
+          onDebugLoggingChange={setDebugLogging}
         />
 
         {/* HUD Overlay - Reduced */}
