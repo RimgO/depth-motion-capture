@@ -123,6 +123,7 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     // Sync debug logging flags whenever they change
     useEffect(() => {
         globalDebugLogging = { ...debugLogging };
+        console.log('[Debug] globalDebugLogging updated:', globalDebugLogging);
     }, [debugLogging]);
 
     const [loading, setLoading] = useState(false);
@@ -513,6 +514,15 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     // --- SOURCE & CAPTURE LOGIC ---
     useEffect(() => {
         const resultsHandler = async (results) => {
+            // Debug: Check if resultsHandler is called
+            if (globalDebugLogging.eyeGaze && Math.random() < 0.1) {
+                console.log('[Debug] resultsHandler called', {
+                    hasResults: !!results,
+                    hasPoseLandmarks: !!results?.poseLandmarks,
+                    hasFaceLandmarks: !!results?.faceLandmarks
+                });
+            }
+            
             if (!results) {
                 if (globalDebugLogging.pose) {
                     console.log('[resultsHandler] Called but no results');
@@ -574,6 +584,29 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             }
 
             const vrm = vrmRef.current;
+            
+            // Debug: Check VRM status
+            if (globalDebugLogging.eyeGaze && Math.random() < 0.1) {
+                console.log('[Debug] VRM check:', {
+                    hasVrm: !!vrm,
+                    hasScene: !!vrm?.scene,
+                    hasParent: !!vrm?.scene?.parent
+                });
+            }
+            
+            // Process face landmarks even without VRM (for debugging)
+            if (globalDebugLogging.eyeGaze && results.faceLandmarks) {
+                const facePose = calculateFaceExpressions(results.faceLandmarks);
+                if (facePose && Math.random() < 0.5) {
+                    console.log('[Eye Gaze]', {
+                        horizontal: facePose.eyeGazeX?.toFixed(3),
+                        vertical: facePose.eyeGazeY?.toFixed(3),
+                        blinkLeft: facePose.blinkLeft?.toFixed(3),
+                        blinkRight: facePose.blinkRight?.toFixed(3)
+                    });
+                }
+            }
+            
             if (vrm && vrm.scene && vrm.scene.parent) {
                 try {
                     // MediaPipe Holistic provides 3D world landmarks via 'za' property (internal naming)
@@ -597,6 +630,16 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                     
                     // Use refactored functions to calculate pose
                     let riggedPose = null;
+                    
+                    // Debug: Check if we reach this code path
+                    if (globalDebugLogging.eyeGaze && Math.random() < 0.1) {
+                        console.log('[Debug] worldLandmarks check:', {
+                            hasWorldLandmarks: !!worldLandmarks,
+                            length: worldLandmarks?.length,
+                            hasFaceLandmarks: !!results.faceLandmarks,
+                            faceLandmarksLength: results.faceLandmarks?.length
+                        });
+                    }
                     
                     if (worldLandmarks && worldLandmarks.length >= 17) {
                         // Prepare hand landmarks for arm twist detection
@@ -626,14 +669,24 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         if (facePose) {
                             riggedPose.Face = facePose;
                             
-                            // Log eye gaze data every 60 frames for debugging (if enabled)
-                            if (globalDebugLogging.eyeGaze && Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE_RARE) {
+                            // Debug: Log facePose content
+                            if (globalDebugLogging.eyeGaze && Math.random() < 0.05) {
+                                console.log('[Debug] facePose:', facePose);
+                            }
+                            
+                            // Log eye gaze data for debugging (if enabled)
+                            if (globalDebugLogging.eyeGaze && Math.random() < 0.5) {
                                 console.log('[Eye Gaze]', {
                                     horizontal: facePose.eyeGazeX?.toFixed(3),
                                     vertical: facePose.eyeGazeY?.toFixed(3),
                                     blinkLeft: facePose.blinkLeft?.toFixed(3),
                                     blinkRight: facePose.blinkRight?.toFixed(3)
                                 });
+                            }
+                        } else {
+                            // Debug: Log when facePose is null
+                            if (globalDebugLogging.eyeGaze && Math.random() < 0.05) {
+                                console.log('[Debug] facePose is null/undefined');
                             }
                         }
                     }
