@@ -96,10 +96,11 @@ if (typeof window !== 'undefined') {
     window.addEventListener('error', handleNullError);
 }
 
-const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isRecording, captureSettings = {}, debugLogging = { holistic: false, pose: false, eyeGaze: false }, onDebugLoggingChange }) => {
+const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecording, captureSettings = {}, debugLogging = { holistic: false, pose: false, eyeGaze: false }, onDebugLoggingChange }) => {
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
     const videoRef = useRef(null);
+    const streamRef = useRef(null);
     const sceneRef = useRef(null);
     const vrmRef = useRef(null);
     const timeDisplayRef = useRef(null);
@@ -131,10 +132,6 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     const [vrmVersion, setVrmVersion] = useState(null);
     const vrmVersionRef = useRef('1'); // Track VRM version in ref for closure access
     const [showNeuralPanel, setShowNeuralPanel] = useState(true);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [duration, setDuration] = useState(0);
-    const [isSeeking, setIsSeeking] = useState(false);
-    const [playbackRate, setPlaybackRate] = useState(1);
     const [analysisLogs, setAnalysisLogs] = useState([
         { id: 1, time: '0.00s', msg: 'Neural link established.' },
         { id: 2, time: '0.05s', msg: 'Awaiting pose vectors...' }
@@ -149,13 +146,6 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     const lastActionEmitRef = useRef(0);
     const lastSuccessRef = useRef(Date.now());
     const recordingStartTimeRef = useRef(0);
-
-    const formatTime = (seconds) => {
-        if (isNaN(seconds)) return "0:00";
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
 
     // --- INITIALIZE POSE ---
     useEffect(() => {
@@ -807,42 +797,142 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     useEffect(() => {
         let isEffectDestroyed = false;
         let cameraProcess = null;
-        let animationFrameId = null;
 
         const startSensing = async () => {
-            if (videoFile && videoRef.current) {
-                videoRef.current.src = videoFile;
-                videoRef.current.play();
-                const loop = async () => {
-                    if (isEffectDestroyed) return;
-                    const holistic = poseRef.current || await getGlobalHolistic();
-                    poseRef.current = holistic;
-                    if (videoRef.current && !videoRef.current.paused) await holistic.send({ image: videoRef.current });
-                    animationFrameId = requestAnimationFrame(loop);
-                };
-                loop();
-            } else if (videoRef.current) {
+            if (!videoRef.current) {
+                console.warn('[Sensing] videoRef.current is null');
+                return;
+            }
+
+            if (useScreenCapture) {
+                // Screen Capture mode
+                console.log('[Screen Capture] Starting...');
+                try {
+                    // Stop any existing stream
+                    if (streamRef.current) {
+                        streamRef.current.getTracks().forEach(track => track.stop());
+                        streamRef.current = null;
+                    }
+
+                    const stream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { 
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                            frameRate: { ideal: 30 }
+                        },
+                        audio: false
+                    });
+                    
+                    if (isEffectDestroyed) {
+                        stream.getTracks().forEach(track => track.stop());
+                        return;
+                    }
+
+                    streamRef.current = stream;
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                    
+                    console.log('[Screen Capture] Started successfully');
+
+                    // Processing loop for screen capture
+                    let frameCount = 0;
+                    const processFrame = async () => {
+                        if (isEffectDestroyed || !streamRef.current) {
+                            console.log('[Screen Capture] Processing loop stopped');
+                            return;
+                        }
+
+                        frameCount++;
+                        if (frameCount % 60 === 1) {
+                            console.log('[Screen Capture] Processing frame', frameCount);
+                        }
+
+                        const holistic = poseRef.current || await getGlobalHolistic();
+                        poseRef.current = holistic;
+                        
+                        if (videoRef.current && 
+                            videoRef.current.videoWidth > 0 && 
+                            videoRef.current.videoHeight > 0 &&
+                            videoRef.current.readyState >= 2) {
+                            try {
+                                await holistic.send({ image: videoRef.current });
+                            } catch (error) {
+                                console.error('[Screen Capture Processing Error]', error);
+                            }
+                        }
+
+                        requestAnimationFrame(processFrame);
+                    };
+                    
+                    processFrame();
+                    console.log('[Screen Capture] Processing loop started');
+
+                    // Handle stream end (user stops sharing)
+                    stream.getVideoTracks()[0].addEventListener('ended', () => {
+                        console.log('[Screen Capture] User stopped sharing');
+                        if (streamRef.current) {
+                            streamRef.current = null;
+                        }
+                    });
+
+                } catch (err) {
+                    console.error('[Screen Capture] Failed:', err);
+                    if (err.name === 'NotAllowedError') {
+                        alert('画面キャプチャが拒否されました');
+                    } else if (err.name === 'NotSupportedError') {
+                        alert('このブラウザは画面キャプチャをサポートしていません');
+                    }
+                }
+            } else {
+                // Webcam mode
+                console.log('[Camera] Starting webcam...');
+                
+                // Stop screen capture if active
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                    videoRef.current.srcObject = null;
+                }
+
                 cameraProcess = new Camera(videoRef.current, {
                     onFrame: async () => {
                         if (isEffectDestroyed) return;
                         const holistic = poseRef.current || await getGlobalHolistic();
                         poseRef.current = holistic;
-                        if (videoRef.current) await holistic.send({ image: videoRef.current });
+                        if (videoRef.current && 
+                            videoRef.current.videoWidth > 0 && 
+                            videoRef.current.videoHeight > 0) {
+                            try {
+                                await holistic.send({ image: videoRef.current });
+                            } catch (error) {
+                                console.error('[Camera Processing Error]', error);
+                            }
+                        }
                     },
-                    width: 640, height: 480
+                    width: 640, 
+                    height: 480
                 });
                 cameraProcess.start();
             }
         };
 
-        startSensing();
+        startSensing().catch(err => {
+            console.error('[Sensing] Start failed:', err);
+        });
 
         return () => {
             isEffectDestroyed = true;
-            if (cameraProcess) cameraProcess.stop();
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (cameraProcess) {
+                console.log('[Camera] Stopping...');
+                cameraProcess.stop();
+            }
+            if (streamRef.current) {
+                console.log('[Screen Capture] Stopping stream...');
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
         };
-    }, [videoFile]);
+    }, [useScreenCapture]);
 
     // Force resize when hasVrm state changes (to handle layout shifts)
     useEffect(() => {
@@ -854,49 +944,6 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             return () => clearTimeout(timer);
         }
     }, [hasVrm]);
-
-    const togglePlayback = () => {
-        if (videoRef.current) {
-            if (videoRef.current.paused) {
-                videoRef.current.play();
-                setIsPlaying(true);
-            } else {
-                videoRef.current.pause();
-                setIsPlaying(false);
-            }
-        }
-    };
-
-    const stepFrame = (forward = true) => {
-        if (videoRef.current) {
-            const frameTime = 1 / 30; // Assume 30 FPS
-            videoRef.current.currentTime += forward ? frameTime : -frameTime;
-        }
-    };
-
-    const cyclePlaybackRate = () => {
-        const rates = [1, 1.5, 2, 0.5];
-        const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
-        setPlaybackRate(nextRate);
-        if (videoRef.current) {
-            videoRef.current.playbackRate = nextRate;
-        }
-    };
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.code === 'Space') {
-                e.preventDefault();
-                togglePlayback();
-            } else if (e.code === 'ArrowRight') {
-                stepFrame(true);
-            } else if (e.code === 'ArrowLeft') {
-                stepFrame(false);
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [playbackRate]); // Re-bind if necessary, though togglePlayback/stepFrame use refs or current state
 
     // Recording Control Effect
     useEffect(() => {
@@ -1006,122 +1053,24 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 <div className="relative w-full h-full group">
                     <video
                         ref={videoRef}
-                        className={`w-full h-full object-cover ${videoFile ? "" : "scale-x-[-1]"}`}
+                        className={`w-full h-full object-cover ${useScreenCapture ? "" : "scale-x-[-1]"}`}
                         playsInline
                         muted
-                        onLoadedMetadata={(e) => setDuration(e.target.duration)}
+                        autoPlay
                     />
                     <canvas
                         ref={overlayRef}
-                        className={`absolute inset-0 w-full h-full pointer-events-none ${videoFile ? "" : "scale-x-[-1]"}`}
+                        className={`absolute inset-0 w-full h-full pointer-events-none ${useScreenCapture ? "" : "scale-x-[-1]"}`}
                         width={640}
                         height={480}
                     />
 
-                    {/* Video Controls Overlay (Visible for video files) */}
-                    {videoFile && (
-                        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-8 gap-4 pointer-events-auto">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex items-center gap-4">
-                                    <button
-                                        onClick={togglePlayback}
-                                        className="p-4 bg-cyan-500 text-black rounded-full hover:scale-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] z-20"
-                                    >
-                                        {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} className="ml-0.5" fill="currentColor" />}
-                                    </button>
-
-                                    <div className="flex-1 flex flex-col gap-1">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex items-center gap-2 text-cyan-400 font-mono text-[10px] font-bold tracking-widest uppercase bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-500/20">
-                                                    <Clock size={10} />
-                                                    <span ref={timeDisplayRef}>{formatTime(0)} / {formatTime(duration)}</span>
-                                                </div>
-                                                <button
-                                                    onClick={cyclePlaybackRate}
-                                                    className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-white/50 hover:text-cyan-400 border border-white/10 rounded uppercase transition-colors"
-                                                >
-                                                    {playbackRate}x Speed
-                                                </button>
-                                            </div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex items-center gap-2 bg-white/5 rounded-lg p-1 px-2 border border-white/10 backdrop-blur-sm">
-                                                    <button
-                                                        onClick={() => stepFrame(false)}
-                                                        className="hover:text-cyan-400 transition-colors p-1"
-                                                        title="Previous Frame"
-                                                    >
-                                                        <SkipBack size={14} />
-                                                    </button>
-                                                    <div className="w-[1px] h-3 bg-white/10" />
-                                                    <button
-                                                        onClick={() => stepFrame(true)}
-                                                        className="hover:text-cyan-400 transition-colors p-1"
-                                                        title="Next Frame"
-                                                    >
-                                                        <SkipForward size={14} />
-                                                    </button>
-                                                </div>
-                                                <div className="hidden sm:block text-white/20 font-mono text-[9px] font-bold tracking-[0.2em]">
-                                                    ENGINE_V2_SYNC
-                                                </div>
-                                                {onClearVideo && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onClearVideo();
-                                                        }}
-                                                        className="p-1.5 hover:bg-red-500/20 rounded-full text-white/30 hover:text-red-400 transition-all border border-transparent hover:border-red-500/30"
-                                                        title="Close Video"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="relative h-6 flex items-center group/seeker">
-                                            <input
-                                                ref={seekInputRef}
-                                                id="seeker-bar"
-                                                type="range"
-                                                min="0"
-                                                max={duration || 100}
-                                                step="0.001"
-                                                defaultValue="0"
-                                                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400 z-10 transition-all hover:h-2"
-                                                onMouseDown={() => setIsSeeking(true)}
-                                                onMouseUp={() => setIsSeeking(false)}
-                                                onTouchStart={() => setIsSeeking(true)}
-                                                onTouchEnd={() => setIsSeeking(false)}
-                                                onInput={(e) => {
-                                                    if (videoRef.current) {
-                                                        const time = parseFloat(e.target.value);
-                                                        videoRef.current.currentTime = time;
-                                                        if (progressFillRef.current) {
-                                                            progressFillRef.current.style.width = `${(time / (duration || 1)) * 100}%`;
-                                                        }
-                                                    }
-                                                }}
-                                            />
-                                            <div
-                                                ref={progressFillRef}
-                                                className="absolute left-0 h-1.5 bg-gradient-to-r from-cyan-600 via-cyan-400 to-white rounded-lg pointer-events-none transition-all group-hover/seeker:h-2 shadow-[0_0_15px_rgba(34,211,238,0.5)]"
-                                                style={{ width: '0%' }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     <div className="absolute top-6 left-6 flex items-center gap-3">
                         <div className="px-3 py-1 bg-cyan-500 text-[10px] font-extrabold text-black rounded-full uppercase tracking-tighter shadow-xl">
-                            {videoFile ? 'Video Analysis' : (hasVrm ? 'Neural Capture View' : 'Direct AI Sensing')}
+                            {useScreenCapture ? 'Screen Capture' : (hasVrm ? 'Neural Capture View' : 'Direct AI Sensing')}
                         </div>
                         <div className="px-3 py-1 bg-white/5 backdrop-blur-xl text-[10px] font-bold text-white/60 rounded-full uppercase border border-white/10">
-                            {videoFile ? 'Manual Scrubbing' : '60FPS Low Latency'}
+                            60FPS Low Latency
                         </div>
                         <button
                             onClick={() => setShowNeuralPanel(!showNeuralPanel)}

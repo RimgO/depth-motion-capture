@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
   const [vrmUrl, setVrmUrl] = useState(null);
-  const [videoFile, setVideoFile] = useState(null);
+  const [useScreenCapture, setUseScreenCapture] = useState(false);
   const [detectedAction, setDetectedAction] = useState("Observing...");
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
@@ -67,14 +67,6 @@ function App() {
     }
   };
 
-  const handleVideoUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setVideoFile(url);
-    }
-  };
-
   const [isMediaExpanded, setIsMediaExpanded] = useState(true);
   const [isAiExpanded, setIsAiExpanded] = useState(true);
 
@@ -113,18 +105,20 @@ function App() {
             >
               <div className="p-4 pt-0 grid grid-cols-1 gap-3">
                 <button
-                  onClick={() => setVideoFile(null)}
-                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${!videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
+                  onClick={() => setUseScreenCapture(false)}
+                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${!useScreenCapture ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
                 >
-                  <Activity className={`${!videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
-                  <span className={`text-[10px] ${!videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Webcam Feed</span>
+                  <Activity className={`${!useScreenCapture ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${!useScreenCapture ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Webcam Feed</span>
                 </button>
 
-                <label className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all cursor-pointer group ${videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}>
-                  <Upload className={`${videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
-                  <span className={`text-[10px] ${videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Upload Video</span>
-                  <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
-                </label>
+                <button
+                  onClick={() => setUseScreenCapture(true)}
+                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${useScreenCapture ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
+                >
+                  <Upload className={`${useScreenCapture ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${useScreenCapture ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Screen Capture</span>
+                </button>
 
                 <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-white/10 rounded-xl hover:border-cyan-500/50 hover:bg-white/5 transition-all cursor-pointer group">
                   <User className="text-white/20 group-hover:text-cyan-400 mb-1" size={16} />
@@ -292,9 +286,8 @@ function App() {
       < main className="flex-1 relative" >
         <MotionCapturer
           vrmUrl={vrmUrl}
-          videoFile={videoFile}
+          useScreenCapture={useScreenCapture}
           onActionDetected={handleActionDetected}
-          onClearVideo={() => setVideoFile(null)}
           isRecording={isRecording}
           captureSettings={captureSettings}
           debugLogging={debugLogging}
