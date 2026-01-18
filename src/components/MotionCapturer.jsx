@@ -118,13 +118,12 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
     // Keep props fresh for the results handler
     useEffect(() => {
         propsRef.current = { onActionDetected, isRecording, captureSettings };
-        globalDebugLogging = debugLogging; // Also update here
-    }, [onActionDetected, isRecording, captureSettings, debugLogging]);
+    }, [onActionDetected, isRecording, captureSettings]);
     
-    // Initialize debug logging on mount
+    // Sync debug logging flags whenever they change
     useEffect(() => {
         globalDebugLogging = { ...debugLogging };
-    }, []); // Run once on mount
+    }, [debugLogging]);
 
     const [loading, setLoading] = useState(false);
     const [hasVrm, setHasVrm] = useState(false);
