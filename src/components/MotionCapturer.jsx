@@ -474,6 +474,29 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
             }
         }
 
+        // Eye Gaze - Apply rotation to eye bones
+        if (riggedPose.Face && riggedPose.Face.eyeGazeX !== undefined && riggedPose.Face.eyeGazeY !== undefined) {
+            const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
+            const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
+            
+            // Convert gaze values (-1 to 1) to rotation angles
+            // Horizontal: positive = look right, negative = look left
+            // Vertical: positive = look down, negative = look up
+            const gazeYaw = riggedPose.Face.eyeGazeX * 0.3;   // Max ~17 degrees
+            const gazePitch = riggedPose.Face.eyeGazeY * 0.2; // Max ~11 degrees
+            
+            const eyeRotation = new THREE.Euler(gazePitch, gazeYaw, 0, 'XYZ');
+            const targetQuat = new THREE.Quaternion().setFromEuler(eyeRotation);
+            
+            // Apply to both eyes with fast lerp for responsive eye movement
+            if (leftEye) {
+                leftEye.quaternion.slerp(targetQuat, 0.5);
+            }
+            if (rightEye) {
+                rightEye.quaternion.slerp(targetQuat, 0.5);
+            }
+        }
+
         return appliedPose;
     };
 

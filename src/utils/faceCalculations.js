@@ -186,8 +186,7 @@ export function calculateFaceExpressions(faceLandmarks) {
 
     const blink = calculateBlink(faceLandmarks);
     const mouth = calculateMouthShape(faceLandmarks);
-    // Eye gaze is optional for now - can be enabled later
-    // const gaze = calculateEyeGaze(faceLandmarks);
+    const gaze = calculateEyeGaze(faceLandmarks);
 
     return {
         // Blink values
@@ -199,10 +198,10 @@ export function calculateFaceExpressions(faceLandmarks) {
         mouthI: mouth.i,
         mouthU: mouth.u,
         mouthE: mouth.e,
-        mouthO: mouth.o
+        mouthO: mouth.o,
         
-        // Eye gaze (optional - commented out for now)
-        // eyeGazeX: gaze.horizontal,
-        // eyeGazeY: gaze.vertical
+        // Eye gaze
+        eyeGazeX: gaze.horizontal,
+        eyeGazeY: gaze.vertical
     };
 }
