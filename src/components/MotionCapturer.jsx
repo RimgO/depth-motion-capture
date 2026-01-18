@@ -7,7 +7,7 @@ import { Holistic } from '@mediapipe/holistic';
 import * as Kalidokit from 'kalidokit';
 import { Camera } from '@mediapipe/camera_utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward } from 'lucide-react';
+import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward, Eye, EyeOff } from 'lucide-react';
 
 // Import refactored modules
 import { TIMING, SMOOTHING, COORDINATES } from '../constants/landmarks.js';
@@ -116,6 +116,9 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
 
     const [loading, setLoading] = useState(false);
     const [hasVrm, setHasVrm] = useState(false);
+    const [vrmVersion, setVrmVersion] = useState(null);
+    const vrmVersionRef = useRef('1'); // Track VRM version in ref for closure access
+    const [showNeuralPanel, setShowNeuralPanel] = useState(true);
     const [isPlaying, setIsPlaying] = useState(false);
     const [duration, setDuration] = useState(0);
     const [isSeeking, setIsSeeking] = useState(false);
@@ -498,7 +501,11 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         };
                         
                         // Calculate arm and body rotations using refactored modules
-                        const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm);
+                        // Pass VRM version to handle coordinate system differences
+                        // Use ref to get latest version (avoiding closure issues)
+                        const currentVrmVersion = vrmVersionRef.current;
+                        console.log('[resultsHandler] Passing vrmVersion to calculateArmRotations:', currentVrmVersion);
+                        const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm, currentVrmVersion);
                         const bodyPose = calculateBodyRotations(worldLandmarks);
                         
                         // Calculate hand rotations (finger bones)
@@ -591,9 +598,23 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                 if (isEffectDestroyed) return;
                 const vrm = gltf.userData.vrm;
                 if (vrmRef.current) sceneRef.current.remove(vrmRef.current.scene);
-                vrm.scene.rotation.y = Math.PI;
+                
+                // Detect VRM version
+                const version = String(vrm.meta?.metaVersion || '1');
+                setVrmVersion(version);
+                vrmVersionRef.current = version; // Update ref for immediate access
+                console.log('VRM Version detected:', version);
+                
+                // VRM version-dependent model rotation:
+                // VRM 0.x: Front is -Z, rotate 180° to face camera
+                // VRM 1.0: Front is +Z (glTF standard), no rotation needed
+                const versionStr = String(version);
+                const isVrm0 = versionStr.startsWith('0');
+                vrm.scene.rotation.y = isVrm0 ? Math.PI : 0;
+                
                 sceneRef.current.add(vrm.scene);
                 vrmRef.current = vrm;
+                
                 setLoading(false);
                 setHasVrm(true);
             }, undefined, (error) => {
@@ -926,16 +947,28 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                         <div className="px-3 py-1 bg-white/5 backdrop-blur-xl text-[10px] font-bold text-white/60 rounded-full uppercase border border-white/10">
                             {videoFile ? 'Manual Scrubbing' : '60FPS Low Latency'}
                         </div>
+                        <button
+                            onClick={() => setShowNeuralPanel(!showNeuralPanel)}
+                            className="px-3 py-1 bg-white/5 backdrop-blur-xl hover:bg-white/10 transition-colors text-[10px] font-bold text-white/60 hover:text-cyan-400 rounded-full uppercase border border-white/10 flex items-center gap-2 pointer-events-auto"
+                            title={showNeuralPanel ? 'Hide Neural Panel' : 'Show Neural Panel'}
+                        >
+                            {showNeuralPanel ? <EyeOff size={12} /> : <Eye size={12} />}
+                            <span>Panel</span>
+                        </button>
                     </div>
 
                     <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_4px,3px_100%]" />
 
                     {/* AI Monitoring Panel */}
-                    <motion.div
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="absolute top-24 left-6 z-30 w-64 flex flex-col gap-4 pointer-events-none"
-                    >
+                    <AnimatePresence>
+                        {showNeuralPanel && (
+                            <motion.div
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.2 }}
+                                className="absolute top-24 left-6 z-30 w-64 flex flex-col gap-4 pointer-events-none"
+                            >
                         <div className="flex flex-col gap-1">
                             <h4 className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em] font-mono blur-[0.2px] drop-shadow-[0_0_5px_rgba(6,182,212,0.5)]">AI Monitoring</h4>
                             <div className="h-[1px] w-full bg-gradient-to-r from-cyan-500/50 to-transparent" />
@@ -1003,6 +1036,16 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                                             <div className="h-0.5 bg-purple-500/20 rounded-full mt-0.5" />
                                         </div>
                                     </div>
+                                    {vrmVersion && (
+                                        <div className="mt-2 pt-2 border-t border-white/5">
+                                            <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter mr-2">VRM</span>
+                                            <span className={`text-[8px] font-mono font-bold tracking-tight ${
+                                                vrmVersion === '1' || vrmVersion.startsWith('1.') ? 'text-green-400' : 'text-yellow-400'
+                                            }`}>
+                                                v{vrmVersion}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex flex-col col-span-2 mt-1 border-t border-white/5 pt-1">
                                     <div className="flex justify-between items-center mb-1">
@@ -1093,6 +1136,8 @@ const MotionCapturer = ({ videoFile, vrmUrl, onActionDetected, onClearVideo, isR
                             </div>
                         </div>
                     </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </motion.div>
 

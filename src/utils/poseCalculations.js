@@ -4,10 +4,17 @@ import { POSE_LANDMARKS, ANGLES, COORDINATES, SMOOTHING, TIMING } from '../const
  * Calculate arm rotations from 3D world landmarks
  * @param {Array} worldLandmarks - 3D world landmarks with x, y, z coordinates
  * @param {Object} handLandmarks - Hand landmarks from MediaPipe (optional, for better twist detection)
+ * @param {string} vrmVersion - VRM version ('0' for VRM0.x, '1' for VRM1.0)
  * @returns {Object} Rigged pose with arm rotations
  */
-export function calculateArmRotations(worldLandmarks, handLandmarks = null) {
+export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmVersion = '1') {
     const lm = worldLandmarks;
+    
+    // Debug: Log VRM version on first call
+    if (!calculateArmRotations._versionLogged) {
+        console.log(`[calculateArmRotations] VRM Version: "${vrmVersion}" (type: ${typeof vrmVersion})`);
+        calculateArmRotations._versionLogged = true;
+    }
     
     // Define landmarks
     const rShoulder = lm[POSE_LANDMARKS.RIGHT_SHOULDER];
@@ -36,13 +43,8 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null) {
         // MediaPipe: Y increases downward, so -dy for upward direction
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
         const angleZ = Math.atan2(horizontalDist, -dy);
-        // Map to VRM range: negate for correct up/down direction
+        // Note: @pixiv/three-vrm handles VRM0.x/VRM1.0 coordinate differences internally
         riggedPose.RightUpperArm.z = -(angleZ - ANGLES.ARM_Z_OFFSET);
-        
-        // Debug: Log angles occasionally
-        if (Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE) {
-            console.log(`[Right Arm] angleZ: ${(angleZ * ANGLES.RAD_TO_DEG).toFixed(1)}°, VRM.z: ${(riggedPose.RightUpperArm.z * ANGLES.RAD_TO_DEG).toFixed(1)}°, dy: ${dy.toFixed(3)}, horizontalDist: ${horizontalDist.toFixed(3)}`);
-        }
         
         // X-axis rotation: Forward/backward tilt
         if (horizontalDist > 0) {
@@ -137,15 +139,11 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null) {
         const dz = lElbow.z - lShoulder.z;
         
         // Z-axis rotation: Arm raise/lower
-        // Same calculation as right arm
+        // Mirrored from right arm
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
         const angleZ = Math.atan2(horizontalDist, -dy);
-        riggedPose.LeftUpperArm.z = angleZ - ANGLES.ARM_Z_OFFSET;
-        
-        // Debug: Log angles occasionally
-        if (Math.random() < TIMING.DEBUG_LOG_SAMPLE_RATE) {
-            console.log(`[Left Arm] angleZ: ${(angleZ * ANGLES.RAD_TO_DEG).toFixed(1)}°, VRM.z: ${(riggedPose.LeftUpperArm.z * ANGLES.RAD_TO_DEG).toFixed(1)}°, dy: ${dy.toFixed(3)}, horizontalDist: ${horizontalDist.toFixed(3)}`);
-        }
+        // Note: @pixiv/three-vrm handles VRM0.x/VRM1.0 coordinate differences internally
+        riggedPose.LeftUpperArm.z = (angleZ - ANGLES.ARM_Z_OFFSET);
         
         // X-axis rotation: Forward/backward tilt  
         if (horizontalDist > 0) {
