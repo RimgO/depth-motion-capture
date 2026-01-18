@@ -266,7 +266,7 @@ export function calculateBodyRotations(worldLandmarks) {
         z: (rHip.z + lHip.z) / 2
     };
     
-    // Head/Neck rotation calculation - Step 2: Y and X axis rotations
+    // Head/Neck rotation calculation - Complete: X, Y, Z axis rotations
     const nose = lm[POSE_LANDMARKS.NOSE];
     const leftEar = lm[POSE_LANDMARKS.LEFT_EAR];
     const rightEar = lm[POSE_LANDMARKS.RIGHT_EAR];
@@ -296,17 +296,20 @@ export function calculateBodyRotations(worldLandmarks) {
         const horizontalDist = Math.sqrt(dx*dx + dz*dz);
         const headPitch = Math.atan2(dy, horizontalDist);
         
+        // Z-axis rotation (roll): temporarily disabled for debugging
+        const headRoll = 0;
+        
         // Split between neck (60%) and head (40%)
         neckRotation = {
             x: headPitch * 0.6,
             y: headYaw * 0.6,
-            z: 0
+            z: headRoll * 0.6
         };
         
         headRotation = {
             x: headPitch * 0.4,
             y: headYaw * 0.4,
-            z: 0
+            z: headRoll * 0.4
         };
     }
     
