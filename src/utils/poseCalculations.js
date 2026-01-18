@@ -266,6 +266,42 @@ export function calculateBodyRotations(worldLandmarks) {
         z: (rHip.z + lHip.z) / 2
     };
     
+    // Head/Neck rotation calculation - Step 1: Y-axis rotation only
+    const nose = lm[POSE_LANDMARKS.NOSE];
+    const leftEar = lm[POSE_LANDMARKS.LEFT_EAR];
+    const rightEar = lm[POSE_LANDMARKS.RIGHT_EAR];
+    
+    let neckRotation = null;
+    let headRotation = null;
+    
+    if (nose && leftEar && rightEar) {
+        // Calculate ear center (back of head reference)
+        const earCenterX = (leftEar.x + rightEar.x) / 2;
+        const earCenterZ = (leftEar.z + rightEar.z) / 2;
+        
+        // Forward vector from ear center to nose (XZ plane only)
+        const dx = nose.x - earCenterX;
+        const dz = nose.z - earCenterZ;
+        
+        // Y-axis rotation (yaw): left/right head turn
+        // MediaPipe: X+ is right, Z- is toward camera
+        // VRM scene is rotated 180°, so forward is inverted
+        const headYaw = Math.atan2(dx, -dz);
+        
+        // Split between neck (60%) and head (40%)
+        neckRotation = {
+            x: 0,
+            y: headYaw * 0.6,
+            z: 0
+        };
+        
+        headRotation = {
+            x: 0,
+            y: headYaw * 0.4,
+            z: 0
+        };
+    }
+    
     return {
         Hips: { 
             x: 0, 
@@ -285,8 +321,8 @@ export function calculateBodyRotations(worldLandmarks) {
         },
         Chest: null,
         UpperChest: null,
-        Neck: null,
-        Head: null,
+        Neck: neckRotation,
+        Head: headRotation,
         RightShoulder: { x: 0, y: 0, z: 0 },
         LeftShoulder: { x: 0, y: 0, z: 0 },
         RightHand: { x: 0, y: 0, z: 0 },
@@ -307,6 +343,7 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
     const yAxisSmoothingFactor = 0.1; // Much faster response for Y-axis rotation (arm twist)
     const blinkSmoothingFactor = 0.2; // Fast response for blinks (need to be responsive)
     const mouthSmoothingFactor = 0.4; // Medium smoothing for mouth shapes
+    const headSmoothingFactor = 0.6; // Heavier smoothing for head/neck stability
     const smoothedPose = JSON.parse(JSON.stringify(currentPose)); // Deep copy
     
     const smoothRotation = (current, previous, key) => {
@@ -315,10 +352,18 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
         const parts = ['x', 'y', 'z'];
         parts.forEach(axis => {
             if (typeof current[key][axis] === 'number' && typeof previous[key][axis] === 'number') {
-                // Use lower smoothing factor for Y-axis rotation (arm twist) to improve responsiveness
-                const factor = (axis === 'y' && (key === 'RightUpperArm' || key === 'LeftUpperArm')) 
-                    ? yAxisSmoothingFactor 
-                    : smoothingFactor;
+                // Use different smoothing factors for different body parts
+                let factor = smoothingFactor;
+                
+                // Faster response for arm twist (Y-axis rotation)
+                if (axis === 'y' && (key === 'RightUpperArm' || key === 'LeftUpperArm')) {
+                    factor = yAxisSmoothingFactor;
+                }
+                // Heavier smoothing for head/neck for stability
+                else if (key === 'Neck' || key === 'Head') {
+                    factor = headSmoothingFactor;
+                }
+                
                 smoothedPose[key][axis] = previous[key][axis] + 
                     (current[key][axis] - previous[key][axis]) * (1 - factor);
             }
@@ -350,7 +395,8 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
     const bodyParts = [
         'RightUpperArm', 'RightLowerArm', 'LeftUpperArm', 'LeftLowerArm',
         'RightUpperLeg', 'RightLowerLeg', 'LeftUpperLeg', 'LeftLowerLeg',
-        'Hips', 'Spine', 'RightShoulder', 'LeftShoulder'
+        'Hips', 'Spine', 'RightShoulder', 'LeftShoulder',
+        'Neck', 'Head'  // Add head/neck smoothing
     ];
     
     bodyParts.forEach(part => {
