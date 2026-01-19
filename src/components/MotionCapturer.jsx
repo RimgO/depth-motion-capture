@@ -14,7 +14,8 @@ import { TIMING, SMOOTHING, COORDINATES } from '../constants/landmarks.js';
 import { LowPassFilter, draw2DOverlay, generate3DLandmarks } from '../utils/landmarkProcessing.js';
 import { 
     calculateArmRotations, 
-    calculateBodyRotations, 
+    calculateBodyRotations,
+    calculateLegRotations,
     applyTemporalSmoothing,
     mergeRiggedPose 
 } from '../utils/poseCalculations.js';
@@ -646,14 +647,17 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm, currentVrmVersion);
                         const bodyPose = calculateBodyRotations(worldLandmarks);
                         
+                        // Calculate leg rotations
+                        const legPose = calculateLegRotations(worldLandmarks);
+                        
                         // Calculate hand rotations (finger bones)
                         const handPose = calculateHandRotations(results);
                         
                         // Calculate face expressions (BlendShapes)
                         const facePose = results.faceLandmarks ? calculateFaceExpressions(results.faceLandmarks) : null;
                         
-                        // Merge poses (including hand and face)
-                        riggedPose = mergeRiggedPose(armPose, bodyPose, handPose);
+                        // Merge poses (including legs, hands, and face)
+                        riggedPose = mergeRiggedPose(armPose, bodyPose, legPose, handPose);
                         
                         // Add face expressions to riggedPose
                         if (facePose) {

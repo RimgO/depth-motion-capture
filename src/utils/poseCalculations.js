@@ -24,6 +24,32 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
     const lElbow = lm[POSE_LANDMARKS.LEFT_ELBOW];
     const lWrist = lm[POSE_LANDMARKS.LEFT_WRIST];
     
+    // Calculate torso tilt for arm angle compensation
+    const rHip = lm[POSE_LANDMARKS.RIGHT_HIP];
+    const lHip = lm[POSE_LANDMARKS.LEFT_HIP];
+    let shoulderHeightDiff = 0; // Shoulder height difference compensation
+    
+    if (rShoulder && lShoulder) {
+        // Calculate shoulder height difference (y-axis)
+        // Positive when right shoulder is lower (body leans right)
+        // In MediaPipe world coords, Y increases downward, so right lower = larger Y
+        shoulderHeightDiff = lShoulder.y - rShoulder.y;
+        
+        // Convert height difference to angular compensation
+        // Estimate shoulder width to get angle
+        const shoulderVec = {
+            x: lShoulder.x - rShoulder.x,
+            y: lShoulder.y - rShoulder.y,
+            z: lShoulder.z - rShoulder.z
+        };
+        const shoulderDist = Math.sqrt(shoulderVec.x**2 + shoulderVec.y**2 + shoulderVec.z**2);
+        
+        if (shoulderDist > 0.01) {
+            // Calculate tilt angle from shoulder line
+            shoulderHeightDiff = Math.atan2(shoulderHeightDiff, shoulderDist);
+        }
+    }
+    
     const riggedPose = {
         RightUpperArm: { x: 0, y: 0, z: 0 },
         LeftUpperArm: { x: 0, y: 0, z: 0 },
@@ -60,7 +86,27 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
             
             // Invert so positive rotation raises the arm
             // π/2 - angleZ makes horizontal position = 0, raised arm = positive
-            const armRotation = Math.PI/2 - angleZ;
+            let armRotation = Math.PI/2 - angleZ;
+            
+            // Debug: Log compensation (20% sample rate)
+            if (Math.random() < 0.2) {
+                console.log('[RIGHT ARM] Shoulder:', rShoulder.x.toFixed(3), rShoulder.y.toFixed(3), rShoulder.z.toFixed(3),
+                           'Elbow:', rElbow.x.toFixed(3), rElbow.y.toFixed(3), rElbow.z.toFixed(3));
+                console.log('[RIGHT ARM] Vector (nx,ny,nz):', nx.toFixed(3), ny.toFixed(3), nz.toFixed(3),
+                           'angleZ:', angleZ.toFixed(3), 'shoulderHeightDiff:', shoulderHeightDiff.toFixed(3), 
+                           'armRotation before:', armRotation.toFixed(3));
+            }
+            
+            // Compensate for shoulder height difference
+            // When right shoulder is lower, add compensation to lower the arm angle
+            armRotation += shoulderHeightDiff * 1.0; // 100% compensation
+            
+            // Debug: Log after compensation
+            if (Math.random() < 0.2) {
+                console.log('[RIGHT ARM] armRotation after:', armRotation.toFixed(3), 
+                           'final (VRM1.0):', (-armRotation).toFixed(3));
+            }
+            
             // VRM 1.0: Use negative sign (opposite of left arm)
             riggedPose.RightUpperArm.z = isVrm0 ? armRotation : -armRotation;
             
@@ -182,7 +228,27 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
             // VRM version-dependent rotation (mirrored from right arm)
             const versionStr = String(vrmVersion);
             const isVrm0 = versionStr.startsWith('0');
-            const armRotation = Math.PI/2 - angleZ;
+            let armRotation = Math.PI/2 - angleZ;
+            
+            // Debug: Log compensation (20% sample rate)
+            if (Math.random() < 0.2) {
+                console.log('[LEFT ARM] Shoulder:', lShoulder.x.toFixed(3), lShoulder.y.toFixed(3), lShoulder.z.toFixed(3),
+                           'Elbow:', lElbow.x.toFixed(3), lElbow.y.toFixed(3), lElbow.z.toFixed(3));
+                console.log('[LEFT ARM] Vector (nx,ny,nz):', nx.toFixed(3), ny.toFixed(3), nz.toFixed(3),
+                           'angleZ:', angleZ.toFixed(3), 'shoulderHeightDiff:', shoulderHeightDiff.toFixed(3), 
+                           'armRotation before:', armRotation.toFixed(3));
+            }
+            
+            // Compensate for shoulder height difference  
+            // When left shoulder is higher, subtract compensation to raise the arm angle
+            armRotation -= shoulderHeightDiff * 1.0; // 100% compensation
+            
+            // Debug: Log after compensation
+            if (Math.random() < 0.2) {
+                console.log('[LEFT ARM] armRotation after:', armRotation.toFixed(3), 
+                           'final (VRM1.0):', armRotation.toFixed(3));
+            }
+            
             riggedPose.LeftUpperArm.z = isVrm0 ? -armRotation : armRotation;
             
             // X-axis rotation: Forward/backward tilt
@@ -280,6 +346,144 @@ export function calculateArmRotations(worldLandmarks, handLandmarks = null, vrmV
     }
     
     return riggedPose;
+}
+
+/**
+ * Calculate leg rotations from 3D world landmarks
+ * @param {Array} worldLandmarks - 3D world landmarks with x, y, z coordinates
+ * @returns {Object} Leg rotations for VRM
+ */
+export function calculateLegRotations(worldLandmarks) {
+    const lm = worldLandmarks;
+    
+    const rHip = lm[POSE_LANDMARKS.RIGHT_HIP];
+    const lHip = lm[POSE_LANDMARKS.LEFT_HIP];
+    const rKnee = lm[POSE_LANDMARKS.RIGHT_KNEE];
+    const lKnee = lm[POSE_LANDMARKS.LEFT_KNEE];
+    const rAnkle = lm[POSE_LANDMARKS.RIGHT_ANKLE];
+    const lAnkle = lm[POSE_LANDMARKS.LEFT_ANKLE];
+    
+    const legPose = {
+        RightUpperLeg: { x: 0, y: 0, z: 0 },
+        LeftUpperLeg: { x: 0, y: 0, z: 0 },
+        RightLowerLeg: { x: 0, y: 0, z: 0 },
+        LeftLowerLeg: { x: 0, y: 0, z: 0 }
+    };
+    
+    // Large dead zone for standing pose (in radians, ~8.6 degrees)
+    // This prevents small tracking noise from affecting the pose
+    const DEAD_ZONE = 0.15;
+    // Very large dead zone for knee to ensure straight legs in standing poses
+    // MediaPipe often detects false knee bends even when legs are straight
+    // Increased to 0.6 radians (~34 degrees) to cover natural standing variance
+    const DEAD_ZONE_KNEE = 0.6;
+    
+    // === RIGHT LEG ===
+    if (rHip && rKnee && rAnkle) {
+        // Upper leg vector (hip to knee)
+        const upperDx = rKnee.x - rHip.x;
+        const upperDy = rKnee.y - rHip.y;
+        const upperDz = rKnee.z - rHip.z;
+        const upperLen = Math.sqrt(upperDx**2 + upperDy**2 + upperDz**2);
+        
+        if (upperLen > 0.01) {
+            const nx = upperDx / upperLen;
+            const ny = upperDy / upperLen;
+            const nz = upperDz / upperLen;
+            
+            // Z-axis rotation: Forward/backward (sagittal plane)
+            // MediaPipe: Y+ is down (gravity), Z- is toward camera
+            // Standing straight: leg points down (ny > 0), nz ≈ 0
+            // Forward: nz becomes negative (away from camera)
+            // VRM: positive Z = leg forward
+            let rotZ = Math.atan2(-nz, ny);
+            if (Math.abs(rotZ) < DEAD_ZONE) rotZ = 0;
+            legPose.RightUpperLeg.z = rotZ;
+            
+            // X-axis rotation: Inward/outward (frontal plane)
+            // Disable X-axis rotation to prevent leg splay in T-pose
+            legPose.RightUpperLeg.x = 0;
+        }
+        
+        // Lower leg (knee bend)
+        const lowerDx = rAnkle.x - rKnee.x;
+        const lowerDy = rAnkle.y - rKnee.y;
+        const lowerDz = rAnkle.z - rKnee.z;
+        const lowerLen = Math.sqrt(lowerDx**2 + lowerDy**2 + lowerDz**2);
+        
+        if (upperLen > 0.01 && lowerLen > 0.01) {
+            // Normalize vectors
+            const ux = upperDx / upperLen;
+            const uy = upperDy / upperLen;
+            const uz = upperDz / upperLen;
+            const lx = lowerDx / lowerLen;
+            const ly = lowerDy / lowerLen;
+            const lz = lowerDz / lowerLen;
+            
+            // Calculate angle between upper and lower leg
+            const dot = ux*lx + uy*ly + uz*lz;
+            let kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot)));
+            
+            // Apply dead zone for slight bends
+            if (kneeAngle < DEAD_ZONE_KNEE) kneeAngle = 0;
+            
+            // VRM: 0=straight, negative=bent for right leg
+            legPose.RightLowerLeg.z = -kneeAngle;
+        }
+    }
+    
+    // === LEFT LEG ===
+    if (lHip && lKnee && lAnkle) {
+        // Upper leg vector (hip to knee)
+        const upperDx = lKnee.x - lHip.x;
+        const upperDy = lKnee.y - lHip.y;
+        const upperDz = lKnee.z - lHip.z;
+        const upperLen = Math.sqrt(upperDx**2 + upperDy**2 + upperDz**2);
+        
+        if (upperLen > 0.01) {
+            const nx = upperDx / upperLen;
+            const ny = upperDy / upperLen;
+            const nz = upperDz / upperLen;
+            
+            // Z-axis rotation: Forward/backward (sagittal plane)
+            // Same calculation as right leg
+            let rotZ = Math.atan2(-nz, ny);
+            if (Math.abs(rotZ) < DEAD_ZONE) rotZ = 0;
+            legPose.LeftUpperLeg.z = rotZ;
+            
+            // X-axis rotation: Inward/outward (frontal plane)
+            // Disable X-axis rotation to prevent leg splay in T-pose
+            legPose.LeftUpperLeg.x = 0;
+        }
+        
+        // Lower leg (knee bend)
+        const lowerDx = lAnkle.x - lKnee.x;
+        const lowerDy = lAnkle.y - lKnee.y;
+        const lowerDz = lAnkle.z - lKnee.z;
+        const lowerLen = Math.sqrt(lowerDx**2 + lowerDy**2 + lowerDz**2);
+        
+        if (upperLen > 0.01 && lowerLen > 0.01) {
+            // Normalize vectors
+            const ux = upperDx / upperLen;
+            const uy = upperDy / upperLen;
+            const uz = upperDz / upperLen;
+            const lx = lowerDx / lowerLen;
+            const ly = lowerDy / lowerLen;
+            const lz = lowerDz / lowerLen;
+            
+            // Calculate angle between upper and lower leg
+            const dot = ux*lx + uy*ly + uz*lz;
+            let kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot)));
+            
+            // Apply dead zone for slight bends
+            if (kneeAngle < DEAD_ZONE_KNEE) kneeAngle = 0;
+            
+            // VRM: 0=straight, positive=bent for left leg
+            legPose.LeftLowerLeg.z = kneeAngle;
+        }
+    }
+    
+    return legPose;
 }
 
 /**
@@ -404,19 +608,19 @@ export function calculateBodyRotations(worldLandmarks) {
             }
         },
         Spine: { 
-            x: 0,
-            y: 0,
-            z: 0
+            x: spineRotation.x * 0.5,  // 50% of forward lean (positive for forward bend)
+            y: 0,  // Twist disabled
+            z: -spineRotation.z * 0.5   // 50% of lateral lean, negated for VRM
         },
         Chest: { 
-            x: 0,
-            y: 0,
-            z: 0
+            x: spineRotation.x * 0.3,  // 30% of forward lean (positive for forward bend)
+            y: 0,  // Twist disabled
+            z: -spineRotation.z * 0.3   // 30% of lateral lean, negated for VRM
         },
         UpperChest: { 
-            x: 0,
-            y: 0,
-            z: 0
+            x: spineRotation.x * 0.2,  // 20% of forward lean (positive for forward bend)
+            y: 0,  // Twist disabled
+            z: -spineRotation.z * 0.2   // 20% of lateral lean, negated for VRM
         },
         Neck: neckRotation,
         Head: headRotation,
@@ -504,16 +708,18 @@ export function applyTemporalSmoothing(currentPose, previousPose) {
 }
 
 /**
- * Merge arm rotations with body rotations and hand rotations
+ * Merge arm rotations with body rotations, leg rotations, and hand rotations
  * @param {Object} armPose - Arm rotations from calculateArmRotations
  * @param {Object} bodyPose - Body rotations from calculateBodyRotations
+ * @param {Object} legPose - Leg rotations from calculateLegRotations (optional)
  * @param {Object} handPose - Hand rotations from calculateHandRotations (optional)
  * @returns {Object} Complete rigged pose
  */
-export function mergeRiggedPose(armPose, bodyPose, handPose = {}) {
+export function mergeRiggedPose(armPose, bodyPose, legPose = {}, handPose = {}) {
     return {
         ...bodyPose,
         ...armPose,
+        ...legPose,
         ...handPose
     };
 }
