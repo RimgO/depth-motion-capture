@@ -12,12 +12,12 @@ import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward, Eye, EyeOff } f
 // Import refactored modules
 import { TIMING, SMOOTHING, COORDINATES } from '../constants/landmarks.js';
 import { LowPassFilter, draw2DOverlay, generate3DLandmarks } from '../utils/landmarkProcessing.js';
-import { 
-    calculateArmRotations, 
+import {
+    calculateArmRotations,
     calculateBodyRotations,
     calculateLegRotations,
     applyTemporalSmoothing,
-    mergeRiggedPose 
+    mergeRiggedPose
 } from '../utils/poseCalculations.js';
 import { calculateAllMetrics } from '../utils/metricsCalculator.js';
 import { calculateHandRotations } from '../utils/handCalculations.js';
@@ -66,7 +66,7 @@ const getGlobalHolistic = () => {
                     hasRightHandLandmarks: !!results.rightHandLandmarks
                 });
             }
-            
+
             if (activeResultsCallback) {
                 activeResultsCallback(results);
             } else {
@@ -112,7 +112,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
     const rendererRef = useRef(null);
     const propsRef = useRef({ onActionDetected, isRecording, captureSettings });
     const recordedDataRef = useRef([]);
-    
+
     // Low-pass filters for each landmark
     const landmarkFiltersRef = useRef(null);
     const previousRiggedPoseRef = useRef(null);
@@ -121,7 +121,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
     useEffect(() => {
         propsRef.current = { onActionDetected, isRecording, captureSettings };
     }, [onActionDetected, isRecording, captureSettings]);
-    
+
     // Sync debug logging flags whenever they change
     useEffect(() => {
         globalDebugLogging = { ...debugLogging };
@@ -259,14 +259,27 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
         const appliedPose = {};
 
         const setRotation = (name, rotation, lerpAmount = SMOOTHING.VRM_BONE_SLERP) => {
-            if (!vrm || !vrm.humanoid) return;
+            if (!vrm || !vrm.humanoid) {
+                console.warn('[animateVRM] VRM or Humanoid missing');
+                return;
+            }
             const bone = vrm.humanoid.getNormalizedBoneNode(name);
-            if (bone && rotation) {
+            if (!bone) {
+                // Throttle this log
+                if (Math.random() < 0.001) console.warn(`[animateVRM] Bone not found: ${name}`);
+                return;
+            }
+            if (rotation) {
                 const targetQuat = new THREE.Quaternion().setFromEuler(
                     new THREE.Euler(rotation.x, rotation.y, rotation.z, 'XYZ')
                 );
                 bone.quaternion.slerp(targetQuat, lerpAmount);
                 appliedPose[name] = rotation;
+
+                // Debug log for RightUpperArm to verify movement
+                if (name === 'rightUpperArm' && Math.random() < 0.01) {
+                    console.log(`[animateVRM] Rotating ${name}:`, { rotation, euler: bone.rotation, quat: bone.quaternion });
+                }
             }
         };
 
@@ -318,7 +331,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         new THREE.Euler(0, rot.y, 0, 'XYZ')
                     );
                     bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
-                    
+
                     // Apply X and Z normally
                     const xzQuat = new THREE.Quaternion().setFromEuler(
                         new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
@@ -343,7 +356,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         new THREE.Euler(0, rot.y, 0, 'XYZ')
                     );
                     bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
-                    
+
                     // Apply X and Z normally
                     const xzQuat = new THREE.Quaternion().setFromEuler(
                         new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
@@ -365,7 +378,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
 
         // Fingers - Use higher lerp for faster response (fingers need to move quickly)
         const fingerLerp = 0.9; // Faster response than body (0.8) for finger articulation
-        
+
         // Fingers - Left Hand
         if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal, fingerLerp);
         if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate, fingerLerp);
@@ -480,16 +493,16 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
         if (riggedPose.Face && riggedPose.Face.eyeGazeX !== undefined && riggedPose.Face.eyeGazeY !== undefined) {
             const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
             const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
-            
+
             // Convert gaze values (-1 to 1) to rotation angles
             // Horizontal: positive = look right, negative = look left
             // Vertical: positive = look down, negative = look up
             const gazeYaw = riggedPose.Face.eyeGazeX * 0.3;   // Max ~17 degrees
             const gazePitch = riggedPose.Face.eyeGazeY * 0.2; // Max ~11 degrees
-            
+
             const eyeRotation = new THREE.Euler(gazePitch, gazeYaw, 0, 'XYZ');
             const targetQuat = new THREE.Quaternion().setFromEuler(eyeRotation);
-            
+
             // Apply to both eyes with fast lerp for responsive eye movement
             if (leftEye) {
                 leftEye.quaternion.slerp(targetQuat, 0.5);
@@ -513,7 +526,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     hasFaceLandmarks: !!results?.faceLandmarks
                 });
             }
-            
+
             if (!results) {
                 if (globalDebugLogging.pose) {
                     console.log('[resultsHandler] Called but no results');
@@ -547,7 +560,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                 console.log('poseWorldLandmarks exists?', results.poseWorldLandmarks !== undefined);
                 console.log('poseWorldLandmarks type:', typeof results.poseWorldLandmarks);
                 console.log('poseWorldLandmarks length:', results.poseWorldLandmarks?.length);
-                
+
                 // Check mysterious 'za' property
                 console.log('--- Checking results.za ---');
                 console.log('za exists?', results.za !== undefined);
@@ -560,7 +573,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         console.log('za[0] properties:', Object.keys(results.za[0] || {}));
                     }
                 }
-                
+
                 if (results.poseWorldLandmarks && results.poseWorldLandmarks.length > 0) {
                     console.log('Sample poseWorldLandmarks[0]:', results.poseWorldLandmarks[0]);
                     console.log('Has x/y/z properties?', {
@@ -575,7 +588,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             }
 
             const vrm = vrmRef.current;
-            
+
             // Debug: Check VRM status
             if (globalDebugLogging.eyeGaze && Math.random() < 0.1) {
                 console.log('[Debug] VRM check:', {
@@ -584,7 +597,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     hasParent: !!vrm?.scene?.parent
                 });
             }
-            
+
             // Process face landmarks even without VRM (for debugging)
             if (globalDebugLogging.eyeGaze && results.faceLandmarks) {
                 const facePose = calculateFaceExpressions(results.faceLandmarks);
@@ -597,31 +610,31 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     });
                 }
             }
-            
+
             if (vrm && vrm.scene && vrm.scene.parent) {
                 try {
                     // MediaPipe Holistic provides 3D world landmarks via 'za' property (internal naming)
                     // This contains real 3D coordinates from the pose estimation model
                     let worldLandmarks = results.za || results.poseWorldLandmarks;
-                    
+
                     if (!worldLandmarks && landmarks) {
                         // Initialize filters on first frame
                         if (!landmarkFiltersRef.current) {
                             landmarkFiltersRef.current = landmarks.map(() => new LowPassFilter(SMOOTHING.LANDMARK_FILTER));
                         }
-                        
+
                         // Use refactored function to generate pseudo-3D landmarks
                         worldLandmarks = generate3DLandmarks(landmarks, landmarkFiltersRef.current);
                     }
-                    
+
                     if (!worldLandmarks) {
                         console.warn('[Pose Calculation] No world landmarks available');
                         return;
                     }
-                    
+
                     // Use refactored functions to calculate pose
                     let riggedPose = null;
-                    
+
                     // Debug: Check if we reach this code path
                     if (globalDebugLogging.eyeGaze && Math.random() < 0.1) {
                         console.log('[Debug] worldLandmarks check:', {
@@ -631,14 +644,14 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                             faceLandmarksLength: results.faceLandmarks?.length
                         });
                     }
-                    
+
                     if (worldLandmarks && worldLandmarks.length >= 17) {
                         // Prepare hand landmarks for arm twist detection
                         const handLandmarksForArm = {
                             leftHandLandmarks: results.leftHandLandmarks || null,
                             rightHandLandmarks: results.rightHandLandmarks || null
                         };
-                        
+
                         // Calculate arm and body rotations using refactored modules
                         // Pass VRM version to handle coordinate system differences
                         // Use ref to get latest version (avoiding closure issues)
@@ -646,28 +659,28 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         console.log('[resultsHandler] Passing vrmVersion to calculateArmRotations:', currentVrmVersion);
                         const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm, currentVrmVersion);
                         const bodyPose = calculateBodyRotations(worldLandmarks);
-                        
+
                         // Calculate leg rotations
                         const legPose = calculateLegRotations(worldLandmarks);
-                        
+
                         // Calculate hand rotations (finger bones)
                         const handPose = calculateHandRotations(results);
-                        
+
                         // Calculate face expressions (BlendShapes)
                         const facePose = results.faceLandmarks ? calculateFaceExpressions(results.faceLandmarks) : null;
-                        
+
                         // Merge poses (including legs, hands, and face)
                         riggedPose = mergeRiggedPose(armPose, bodyPose, legPose, handPose);
-                        
+
                         // Add face expressions to riggedPose
                         if (facePose) {
                             riggedPose.Face = facePose;
-                            
+
                             // Debug: Log facePose content
                             if (globalDebugLogging.eyeGaze && Math.random() < 0.05) {
                                 console.log('[Debug] facePose:', facePose);
                             }
-                            
+
                             // Log eye gaze data for debugging (if enabled)
                             if (globalDebugLogging.eyeGaze && Math.random() < 0.5) {
                                 console.log('[Eye Gaze]', {
@@ -684,7 +697,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                             }
                         }
                     }
-                    
+
                     if (riggedPose) {
                         // Apply temporal smoothing using refactored function
                         riggedPose = applyTemporalSmoothing(riggedPose, previousRiggedPoseRef.current);
@@ -726,7 +739,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             const nowTime = Date.now();
             if (nowTime - lastUiUpdateRef.current > TIMING.UI_UPDATE_THROTTLE) {
                 lastUiUpdateRef.current = nowTime;
-                
+
                 // Use refactored metrics calculator
                 const metrics = calculateAllMetrics({
                     landmarks,
@@ -734,7 +747,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     lastProcessTime: lastProcessTimeRef.current,
                     vrm: vrmRef.current
                 });
-                
+
                 setMetrics(metrics);
                 setStabilityHistory(prev => [...prev.slice(1), metrics.confidence]);
                 setMinimapLandmarks(landmarks.map(l => ({ x: l.x, y: l.y })));
@@ -768,23 +781,23 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                 if (isEffectDestroyed) return;
                 const vrm = gltf.userData.vrm;
                 if (vrmRef.current) sceneRef.current.remove(vrmRef.current.scene);
-                
+
                 // Detect VRM version
                 const version = String(vrm.meta?.metaVersion || '1');
                 setVrmVersion(version);
                 vrmVersionRef.current = version; // Update ref for immediate access
                 console.log('VRM Version detected:', version);
-                
+
                 // VRM version-dependent model rotation:
                 // VRM 0.x: Front is -Z, rotate 180° to face camera
                 // VRM 1.0: Front is +Z (glTF standard), no rotation needed
                 const versionStr = String(version);
                 const isVrm0 = versionStr.startsWith('0');
                 vrm.scene.rotation.y = isVrm0 ? Math.PI : 0;
-                
+
                 sceneRef.current.add(vrm.scene);
                 vrmRef.current = vrm;
-                
+
                 setLoading(false);
                 setHasVrm(true);
             }, undefined, (error) => {
@@ -819,14 +832,14 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     }
 
                     const stream = await navigator.mediaDevices.getDisplayMedia({
-                        video: { 
+                        video: {
                             width: { ideal: 1280 },
                             height: { ideal: 720 },
                             frameRate: { ideal: 30 }
                         },
                         audio: false
                     });
-                    
+
                     if (isEffectDestroyed) {
                         stream.getTracks().forEach(track => track.stop());
                         return;
@@ -835,7 +848,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                     streamRef.current = stream;
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
-                    
+
                     console.log('[Screen Capture] Started successfully');
 
                     // Processing loop for screen capture
@@ -853,9 +866,9 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
 
                         const holistic = poseRef.current || await getGlobalHolistic();
                         poseRef.current = holistic;
-                        
-                        if (videoRef.current && 
-                            videoRef.current.videoWidth > 0 && 
+
+                        if (videoRef.current &&
+                            videoRef.current.videoWidth > 0 &&
                             videoRef.current.videoHeight > 0 &&
                             videoRef.current.readyState >= 2) {
                             try {
@@ -867,7 +880,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
 
                         requestAnimationFrame(processFrame);
                     };
-                    
+
                     processFrame();
                     console.log('[Screen Capture] Processing loop started');
 
@@ -890,7 +903,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             } else {
                 // Webcam mode
                 console.log('[Camera] Starting webcam...');
-                
+
                 // Stop screen capture if active
                 if (streamRef.current) {
                     streamRef.current.getTracks().forEach(track => track.stop());
@@ -903,8 +916,8 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         if (isEffectDestroyed) return;
                         const holistic = poseRef.current || await getGlobalHolistic();
                         poseRef.current = holistic;
-                        if (videoRef.current && 
-                            videoRef.current.videoWidth > 0 && 
+                        if (videoRef.current &&
+                            videoRef.current.videoWidth > 0 &&
                             videoRef.current.videoHeight > 0) {
                             try {
                                 await holistic.send({ image: videoRef.current });
@@ -913,7 +926,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                             }
                         }
                     },
-                    width: 640, 
+                    width: 640,
                     height: 480
                 });
                 cameraProcess.start();
@@ -1036,6 +1049,10 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         <div className="px-3 py-1 bg-blue-600/20 backdrop-blur-md border border-blue-500/30 text-[10px] font-bold text-blue-400 rounded-full uppercase tracking-widest shadow-lg w-fit">
                             Digital Twin Active
                         </div>
+                        <div className="px-3 py-1 bg-white/10 backdrop-blur-md border border-white/5 text-[10px] font-bold text-white/60 rounded-full uppercase tracking-widest shadow-lg w-fit flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${metrics.confidence > 80 ? 'bg-green-500' : metrics.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                            Confidence: {metrics.confidence}%
+                        </div>
                         <div className="px-2 py-1 bg-black/40 backdrop-blur-sm border border-white/5 text-[8px] text-white/40 rounded-lg uppercase tracking-tighter w-fit">
                             Drag to Rotate • Right Click to Pan • Scroll to Zoom
                         </div>
@@ -1087,11 +1104,10 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         {onDebugLoggingChange && (
                             <button
                                 onClick={() => onDebugLoggingChange(!debugLogging)}
-                                className={`px-3 py-1 backdrop-blur-xl hover:bg-white/10 transition-colors text-[10px] font-bold rounded-full uppercase border flex items-center gap-2 pointer-events-auto ${
-                                    debugLogging 
-                                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50' 
+                                className={`px-3 py-1 backdrop-blur-xl hover:bg-white/10 transition-colors text-[10px] font-bold rounded-full uppercase border flex items-center gap-2 pointer-events-auto ${debugLogging
+                                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
                                         : 'bg-white/5 text-white/60 border-white/10 hover:text-cyan-400'
-                                }`}
+                                    }`}
                                 title={debugLogging ? 'Disable Debug Logging' : 'Enable Debug Logging'}
                             >
                                 <Activity size={12} />
@@ -1112,173 +1128,172 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                                 transition={{ duration: 0.2 }}
                                 className="absolute top-24 left-6 z-30 w-64 flex flex-col gap-4 pointer-events-none"
                             >
-                        <div className="flex flex-col gap-1">
-                            <h4 className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em] font-mono blur-[0.2px] drop-shadow-[0_0_5px_rgba(6,182,212,0.5)]">AI Monitoring</h4>
-                            <div className="h-[1px] w-full bg-gradient-to-r from-cyan-500/50 to-transparent" />
-                        </div>
-
-                        <div className="flex flex-col gap-3">
-                            <div>
-                                <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest mb-1">Live Analysis</h5>
-                                <div className="flex items-center gap-2">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${engineStatus === 'Running' ? (metrics.rigging ? 'bg-green-500' : 'bg-cyan-500') :
-                                        engineStatus === 'Stalled' ? 'bg-amber-500' : 'bg-white/20'
-                                        } animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]`} />
-                                    <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-tight">
-                                        {engineStatus === 'Running' ? (metrics.rigging ? 'Neural Link Synced' : 'System Active') :
-                                            engineStatus === 'Stalled' ? 'Neural Stream Stalled' : 'Engine Warming Up...'}
-                                    </span>
+                                <div className="flex flex-col gap-1">
+                                    <h4 className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em] font-mono blur-[0.2px] drop-shadow-[0_0_5px_rgba(6,182,212,0.5)]">AI Monitoring</h4>
+                                    <div className="h-[1px] w-full bg-gradient-to-r from-cyan-500/50 to-transparent" />
                                 </div>
-                            </div>
 
-                            <div>
-                                <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest mb-1">Current Intent</h5>
-                                <motion.div
-                                    key={currentIntent}
-                                    initial={{ opacity: 0, y: 5 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="text-[11px] font-black text-white italic tracking-tight flex items-center gap-2"
-                                >
-                                    <span className="w-1 h-3 bg-cyan-500 rounded-full animate-bounce" style={{ animationDuration: '0.8s' }} />
-                                    {currentIntent}...
-                                </motion.div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 bg-white/5 p-2 rounded-lg border border-white/5 backdrop-blur-md">
-                                <div className="flex flex-col">
-                                    <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Confidence</span>
-                                    <div className="flex items-end gap-1">
-                                        <span className="text-sm font-mono font-bold text-cyan-400 leading-none">{metrics.confidence}%</span>
-                                        <div className="flex-1 h-1 bg-white/10 rounded-full mb-1 overflow-hidden">
-                                            <motion.div
-                                                className="h-full bg-cyan-500"
-                                                animate={{ width: `${metrics.confidence}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Latency</span>
-                                    <div className="flex items-end gap-1">
-                                        <span className="text-sm font-mono font-bold text-blue-400 leading-none">{metrics.latency}ms</span>
-                                    </div>
-                                </div>
-                                <div className="flex flex-col col-span-2 border-t border-white/5 pt-2">
-                                    <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter mb-1">Engine Telemetry</span>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex flex-col flex-1">
-                                            <span className="text-[6px] text-cyan-500/60 uppercase font-bold">WASM/SIMD</span>
-                                            <div className="h-0.5 bg-cyan-500/20 rounded-full mt-0.5" />
-                                        </div>
-                                        <div className="flex flex-col flex-1">
-                                            <span className="text-[6px] text-blue-500/60 uppercase font-bold">WebGL 2.0</span>
-                                            <div className="h-0.5 bg-blue-500/20 rounded-full mt-0.5" />
-                                        </div>
-                                        <div className="flex flex-col flex-1">
-                                            <span className="text-[6px] text-purple-500/60 uppercase font-bold">Flux: {metrics.flux}</span>
-                                            <div className="h-0.5 bg-purple-500/20 rounded-full mt-0.5" />
-                                        </div>
-                                    </div>
-                                    {vrmVersion && (
-                                        <div className="mt-2 pt-2 border-t border-white/5">
-                                            <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter mr-2">VRM</span>
-                                            <span className={`text-[8px] font-mono font-bold tracking-tight ${
-                                                vrmVersion === '1' || vrmVersion.startsWith('1.') ? 'text-green-400' : 'text-yellow-400'
-                                            }`}>
-                                                v{vrmVersion}
+                                <div className="flex flex-col gap-3">
+                                    <div>
+                                        <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest mb-1">Live Analysis</h5>
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${engineStatus === 'Running' ? (metrics.rigging ? 'bg-green-500' : 'bg-cyan-500') :
+                                                engineStatus === 'Stalled' ? 'bg-amber-500' : 'bg-white/20'
+                                                } animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]`} />
+                                            <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-tight">
+                                                {engineStatus === 'Running' ? (metrics.rigging ? 'Neural Link Synced' : 'System Active') :
+                                                    engineStatus === 'Stalled' ? 'Neural Stream Stalled' : 'Engine Warming Up...'}
                                             </span>
                                         </div>
-                                    )}
-                                </div>
-                                <div className="flex flex-col col-span-2 mt-1 border-t border-white/5 pt-1">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Signal Integrity</span>
-                                        <span className="text-[7px] text-blue-500 font-mono tracking-tighter">Live Waveform</span>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <div className="h-8 flex-1 bg-blue-500/5 rounded border border-blue-500/10 overflow-hidden relative">
-                                            <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                                <motion.path
-                                                    d={`M ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')}`}
-                                                    fill="transparent"
-                                                    stroke="#3b82f6"
-                                                    strokeWidth="2"
-                                                    initial={false}
-                                                    animate={{ d: `M ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')}` }}
-                                                    transition={{ duration: 0.1 }}
-                                                />
-                                                <linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" />
-                                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                                                </linearGradient>
-                                                <path
-                                                    d={`M 0,100 L ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')} L 100,100 Z`}
-                                                    fill="url(#waveGrad)"
-                                                />
-                                            </svg>
-                                        </div>
-                                        {minimapLandmarks.length > 0 && (
-                                            <div className="w-8 h-8 bg-cyan-500/5 rounded border border-cyan-500/10 relative overflow-hidden shrink-0">
-                                                <svg className="w-full h-full" viewBox="0 0 1 1">
-                                                    {minimapLandmarks.map((l, i) => (
-                                                        <circle key={i} cx={l.x} cy={l.y} r="0.02" fill="#22d3ee" fillOpacity="0.6" />
-                                                    ))}
-                                                </svg>
+
+                                    <div>
+                                        <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest mb-1">Current Intent</h5>
+                                        <motion.div
+                                            key={currentIntent}
+                                            initial={{ opacity: 0, y: 5 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="text-[11px] font-black text-white italic tracking-tight flex items-center gap-2"
+                                        >
+                                            <span className="w-1 h-3 bg-cyan-500 rounded-full animate-bounce" style={{ animationDuration: '0.8s' }} />
+                                            {currentIntent}...
+                                        </motion.div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 bg-white/5 p-2 rounded-lg border border-white/5 backdrop-blur-md">
+                                        <div className="flex flex-col">
+                                            <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Confidence</span>
+                                            <div className="flex items-end gap-1">
+                                                <span className="text-sm font-mono font-bold text-cyan-400 leading-none">{metrics.confidence}%</span>
+                                                <div className="flex-1 h-1 bg-white/10 rounded-full mb-1 overflow-hidden">
+                                                    <motion.div
+                                                        className="h-full bg-cyan-500"
+                                                        animate={{ width: `${metrics.confidence}%` }}
+                                                    />
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Latency</span>
+                                            <div className="flex items-end gap-1">
+                                                <span className="text-sm font-mono font-bold text-blue-400 leading-none">{metrics.latency}ms</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col col-span-2 border-t border-white/5 pt-2">
+                                            <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter mb-1">Engine Telemetry</span>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex flex-col flex-1">
+                                                    <span className="text-[6px] text-cyan-500/60 uppercase font-bold">WASM/SIMD</span>
+                                                    <div className="h-0.5 bg-cyan-500/20 rounded-full mt-0.5" />
+                                                </div>
+                                                <div className="flex flex-col flex-1">
+                                                    <span className="text-[6px] text-blue-500/60 uppercase font-bold">WebGL 2.0</span>
+                                                    <div className="h-0.5 bg-blue-500/20 rounded-full mt-0.5" />
+                                                </div>
+                                                <div className="flex flex-col flex-1">
+                                                    <span className="text-[6px] text-purple-500/60 uppercase font-bold">Flux: {metrics.flux}</span>
+                                                    <div className="h-0.5 bg-purple-500/20 rounded-full mt-0.5" />
+                                                </div>
+                                            </div>
+                                            {vrmVersion && (
+                                                <div className="mt-2 pt-2 border-t border-white/5">
+                                                    <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter mr-2">VRM</span>
+                                                    <span className={`text-[8px] font-mono font-bold tracking-tight ${vrmVersion === '1' || vrmVersion.startsWith('1.') ? 'text-green-400' : 'text-yellow-400'
+                                                        }`}>
+                                                        v{vrmVersion}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col col-span-2 mt-1 border-t border-white/5 pt-1">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Signal Integrity</span>
+                                                <span className="text-[7px] text-blue-500 font-mono tracking-tighter">Live Waveform</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <div className="h-8 flex-1 bg-blue-500/5 rounded border border-blue-500/10 overflow-hidden relative">
+                                                    <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                                        <motion.path
+                                                            d={`M ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')}`}
+                                                            fill="transparent"
+                                                            stroke="#3b82f6"
+                                                            strokeWidth="2"
+                                                            initial={false}
+                                                            animate={{ d: `M ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')}` }}
+                                                            transition={{ duration: 0.1 }}
+                                                        />
+                                                        <linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
+                                                            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" />
+                                                            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                                                        </linearGradient>
+                                                        <path
+                                                            d={`M 0,100 L ${stabilityHistory.map((v, i) => `${(i / (stabilityHistory.length - 1)) * 100},${100 - v}`).join(' L ')} L 100,100 Z`}
+                                                            fill="url(#waveGrad)"
+                                                        />
+                                                    </svg>
+                                                </div>
+                                                {minimapLandmarks.length > 0 && (
+                                                    <div className="w-8 h-8 bg-cyan-500/5 rounded border border-cyan-500/10 relative overflow-hidden shrink-0">
+                                                        <svg className="w-full h-full" viewBox="0 0 1 1">
+                                                            {minimapLandmarks.map((l, i) => (
+                                                                <circle key={i} cx={l.x} cy={l.y} r="0.02" fill="#22d3ee" fillOpacity="0.6" />
+                                                            ))}
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
 
-                                <div className="flex flex-col col-span-2 mt-1 border-t border-white/5 pt-1">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Neural Stream</span>
-                                        <span className="text-[7px] text-cyan-500/60 font-mono tracking-tighter">{metrics.landmarks} nodes</span>
+                                        <div className="flex flex-col col-span-2 mt-1 border-t border-white/5 pt-1">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-[7px] text-white/40 uppercase font-black tracking-tighter">Neural Stream</span>
+                                                <span className="text-[7px] text-cyan-500/60 font-mono tracking-tighter">{metrics.landmarks} nodes</span>
+                                            </div>
+                                            <div className="h-4 flex items-center justify-between gap-[1px]">
+                                                {[...Array(24)].map((_, i) => (
+                                                    <motion.div
+                                                        key={i}
+                                                        animate={{
+                                                            height: [
+                                                                `${Math.random() * 100}%`,
+                                                                `${Math.random() * 100}%`,
+                                                                `${Math.random() * 100}%`
+                                                            ],
+                                                            backgroundColor: i % 4 === 0 ? '#22d3ee' : '#1e40af'
+                                                        }}
+                                                        transition={{
+                                                            repeat: Infinity,
+                                                            duration: 0.5 + Math.random(),
+                                                            ease: "easeInOut"
+                                                        }}
+                                                        className="flex-1 rounded-full opacity-50"
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="h-4 flex items-center justify-between gap-[1px]">
-                                        {[...Array(24)].map((_, i) => (
-                                            <motion.div
-                                                key={i}
-                                                animate={{
-                                                    height: [
-                                                        `${Math.random() * 100}%`,
-                                                        `${Math.random() * 100}%`,
-                                                        `${Math.random() * 100}%`
-                                                    ],
-                                                    backgroundColor: i % 4 === 0 ? '#22d3ee' : '#1e40af'
-                                                }}
-                                                transition={{
-                                                    repeat: Infinity,
-                                                    duration: 0.5 + Math.random(),
-                                                    ease: "easeInOut"
-                                                }}
-                                                className="flex-1 rounded-full opacity-50"
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div className="flex flex-col gap-2">
-                                <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Analysis Log</h5>
-                                <div className="flex flex-col gap-1 max-h-48 overflow-hidden mask-fade-bottom">
-                                    <AnimatePresence initial={false}>
-                                        {analysisLogs.map((log) => (
-                                            <motion.div
-                                                key={log.id}
-                                                initial={{ opacity: 0, x: -10, height: 0 }}
-                                                animate={{ opacity: 1, x: 0, height: 'auto' }}
-                                                exit={{ opacity: 0 }}
-                                                className="flex gap-2 font-mono text-[9px] leading-tight"
-                                            >
-                                                <span className="text-cyan-500/60 shrink-0">[{log.time}]</span>
-                                                <span className="text-white/70">{log.msg}</span>
-                                            </motion.div>
-                                        ))}
-                                    </AnimatePresence>
+                                    <div className="flex flex-col gap-2">
+                                        <h5 className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Analysis Log</h5>
+                                        <div className="flex flex-col gap-1 max-h-48 overflow-hidden mask-fade-bottom">
+                                            <AnimatePresence initial={false}>
+                                                {analysisLogs.map((log) => (
+                                                    <motion.div
+                                                        key={log.id}
+                                                        initial={{ opacity: 0, x: -10, height: 0 }}
+                                                        animate={{ opacity: 1, x: 0, height: 'auto' }}
+                                                        exit={{ opacity: 0 }}
+                                                        className="flex gap-2 font-mono text-[9px] leading-tight"
+                                                    >
+                                                        <span className="text-cyan-500/60 shrink-0">[{log.time}]</span>
+                                                        <span className="text-white/70">{log.msg}</span>
+                                                    </motion.div>
+                                                ))}
+                                            </AnimatePresence>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                    </motion.div>
+                            </motion.div>
                         )}
                     </AnimatePresence>
                 </div>
