@@ -5,11 +5,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
   const [vrmUrl, setVrmUrl] = useState(null);
-  const [videoFile, setVideoFile] = useState(null);
+  const [useScreenCapture, setUseScreenCapture] = useState(false);
   const [detectedAction, setDetectedAction] = useState("Observing...");
   const [actionHistory, setActionHistory] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [debugLogging, setDebugLogging] = useState({
+    holistic: false,
+    pose: false,
+    eyeGaze: false
+  });
+  const [captureSettings, setCaptureSettings] = useState({
+    captureLowerBody: true
+  });
 
   // Mock AI Agent Labeling logic
   const handleActionDetected = (landmarks) => {
@@ -59,14 +67,6 @@ function App() {
     }
   };
 
-  const handleVideoUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setVideoFile(url);
-    }
-  };
-
   const [isMediaExpanded, setIsMediaExpanded] = useState(true);
   const [isAiExpanded, setIsAiExpanded] = useState(true);
 
@@ -105,18 +105,20 @@ function App() {
             >
               <div className="p-4 pt-0 grid grid-cols-1 gap-3">
                 <button
-                  onClick={() => setVideoFile(null)}
-                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${!videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
+                  onClick={() => setUseScreenCapture(false)}
+                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${!useScreenCapture ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
                 >
-                  <Activity className={`${!videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
-                  <span className={`text-[10px] ${!videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Webcam Feed</span>
+                  <Activity className={`${!useScreenCapture ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${!useScreenCapture ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Webcam Feed</span>
                 </button>
 
-                <label className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all cursor-pointer group ${videoFile ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}>
-                  <Upload className={`${videoFile ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
-                  <span className={`text-[10px] ${videoFile ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Upload Video</span>
-                  <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
-                </label>
+                <button
+                  onClick={() => setUseScreenCapture(true)}
+                  className={`flex flex-col items-center justify-center w-full h-16 border-2 border-dashed rounded-xl transition-all group ${useScreenCapture ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/50 hover:bg-white/5'}`}
+                >
+                  <Upload className={`${useScreenCapture ? 'text-cyan-400' : 'text-white/20 group-hover:text-cyan-400'} mb-1`} size={16} />
+                  <span className={`text-[10px] ${useScreenCapture ? 'text-cyan-400 font-bold' : 'text-white/40 group-hover:text-white/60'}`}>Screen Capture</span>
+                </button>
 
                 <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-white/10 rounded-xl hover:border-cyan-500/50 hover:bg-white/5 transition-all cursor-pointer group">
                   <User className="text-white/20 group-hover:text-cyan-400 mb-1" size={16} />
@@ -132,6 +134,81 @@ function App() {
                 </button>
               </div>
             </motion.div>
+          </section>
+
+          {/* Capture Settings Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-4">
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-3">
+                <Settings size={14} /> Capture Settings
+              </h2>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-white/80">Lower Body Capture</span>
+                  <button
+                    onClick={() => setCaptureSettings(prev => ({ ...prev, captureLowerBody: !prev.captureLowerBody }))}
+                    className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings.captureLowerBody ? 'bg-cyan-500' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${captureSettings.captureLowerBody ? 'left-4.5' : 'left-0.5'}`} style={{ left: captureSettings.captureLowerBody ? 'calc(100% - 14px)' : '2px' }} />
+                  </button>
+                </div>
+                <div className="pt-2 border-t border-white/10">
+                  <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider mb-2">Debug Logging</div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Holistic</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, holistic: !prev.holistic }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.holistic ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.holistic ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Pose</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, pose: !prev.pose }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.pose ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.pose ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">Eye Gaze</span>
+                      <button
+                        onClick={() => setDebugLogging(prev => ({ ...prev, eyeGaze: !prev.eyeGaze }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${debugLogging.eyeGaze ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: debugLogging.eyeGaze ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Motion Recording Section */}
+          <section className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-4">
+              <h2 className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-3">
+                <Activity size={14} /> Recording
+              </h2>
+              <button
+                onClick={() => setIsRecording(!isRecording)}
+                className={`w-full font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${isRecording
+                    ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
+                    : 'bg-cyan-500 text-black shadow-cyan-500/30 hover:bg-cyan-400'
+                  }`}
+              >
+                <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Start Recording'}
+              </button>
+              {isRecording && (
+                <div className="mt-2 text-[9px] text-red-400 text-center animate-pulse tracking-widest uppercase font-bold">
+                  rec ●
+                </div>
+              )}
+            </div>
           </section>
 
           {/* AI Monitoring Section */}
@@ -203,35 +280,28 @@ function App() {
             </p>
           </div>
         </div>
-      </aside>
+      </aside >
 
       {/* Main Viewport */}
-      <main className="flex-1 relative">
+      < main className="flex-1 relative" >
         <MotionCapturer
           vrmUrl={vrmUrl}
-          videoFile={videoFile}
+          useScreenCapture={useScreenCapture}
           onActionDetected={handleActionDetected}
-          onClearVideo={() => setVideoFile(null)}
           isRecording={isRecording}
+          captureSettings={captureSettings}
+          debugLogging={debugLogging}
+          onDebugLoggingChange={setDebugLogging}
         />
 
-        {/* HUD Overlay */}
+        {/* HUD Overlay - Reduced */}
         <div className="absolute top-6 right-6 flex gap-4">
           <button className="glass-panel text-white/80 p-3 hover:text-white">
             <Settings size={20} />
           </button>
-          <button
-            onClick={() => setIsRecording(!isRecording)}
-            className={`font-bold px-6 py-2 rounded-xl flex items-center gap-2 shadow-lg transition-all ${isRecording
-                ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
-                : 'bg-cyan-500 text-black shadow-cyan-500/30'
-              }`}
-          >
-            <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Record Motion'}
-          </button>
         </div>
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }
 
