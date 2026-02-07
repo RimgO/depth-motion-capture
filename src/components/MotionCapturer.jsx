@@ -13,6 +13,7 @@ import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward, Eye, EyeOff } f
 import { TIMING, SMOOTHING, COORDINATES } from '../constants/landmarks.js';
 import { LowPassFilter, draw2DOverlay, generate3DLandmarks } from '../utils/landmarkProcessing.js';
 import {
+    calculatePose,
     calculateArmRotations,
     calculateBodyRotations,
     calculateLegRotations,
@@ -22,6 +23,7 @@ import {
 import { calculateAllMetrics } from '../utils/metricsCalculator.js';
 import { calculateHandRotations } from '../utils/handCalculations.js';
 import { calculateFaceExpressions } from '../utils/faceCalculations.js';
+import { useHolistic } from '../hooks/useHolistic.js';
 
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
@@ -149,35 +151,35 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
     const recordingStartTimeRef = useRef(0);
 
     // --- INITIALIZE POSE ---
+    // Use the refactored hook, passing our local resultsHandler as the callback
+    const { poseRef: hookPoseRef, engineStatus: hookEngineStatus } = useHolistic((results) => {
+        // We forward the results to the existing handler logic
+        // Ideally, we would move resultsHandler outside or memoize it
+        if (activeResultsCallback) {
+            activeResultsCallback(results);
+        }
+    });
+
+    // Sync hook state with local usage
     useEffect(() => {
-        let isInstanceDestroyed = false;
+        poseRef.current = hookPoseRef.current;
+        setEngineStatus(hookEngineStatus);
+    }, [hookPoseRef, hookEngineStatus]);
 
-        const init = async () => {
-            try {
-                setAnalysisLogs(prev => [
-                    { id: Date.now(), time: 'BOOT', msg: 'WASM Runtime: Requesting AI core...' },
-                    ...prev
-                ]);
-                const holistic = await getGlobalHolistic();
-                if (!isInstanceDestroyed) {
-                    poseRef.current = holistic;
-                    setAnalysisLogs(prev => [
-                        { id: Date.now(), time: 'OK', msg: 'WASM Runtime: AI core established.' },
-                        ...prev
-                    ]);
-                }
-            } catch (e) {
-                console.error("Pose Init Fail:", e);
-                setAnalysisLogs(prev => [
-                    { id: Date.now(), time: 'ERR', msg: 'WASM Runtime: Engine failed to boot.' },
-                    ...prev
-                ]);
-            }
-        };
-
-        init();
-        return () => { isInstanceDestroyed = true; };
-    }, []);
+    // Legacy logging for UI compatibility (can be removed later)
+    useEffect(() => {
+        if (hookEngineStatus === 'Running') {
+            setAnalysisLogs(prev => [
+                { id: Date.now(), time: 'OK', msg: 'WASM Runtime: AI core established.' },
+                ...prev
+            ]);
+        } else if (hookEngineStatus === 'Error') {
+            setAnalysisLogs(prev => [
+                { id: Date.now(), time: 'ERR', msg: 'WASM Runtime: Engine failed to boot.' },
+                ...prev
+            ]);
+        }
+    }, [hookEngineStatus]);
 
     // --- THREE.JS INITIALIZATION (ONCE) ---
     useEffect(() => {
@@ -283,13 +285,10 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             }
         };
 
-        // Core Body
-        if (riggedPose.Hips) {
+        // Core Body - Hips
+        if (captureSettings.trackHips && riggedPose.Hips) {
             const hips = vrm.humanoid.getNormalizedBoneNode('hips');
             if (hips) {
-                // Adjust position scaling and offset
-                // Mediapipe World coords are roughly meters, but origin is hip center.
-                // VRM Hips are usually ~1.0m off ground.
                 hips.position.set(
                     -riggedPose.Hips.worldPosition.x,
                     riggedPose.Hips.worldPosition.y + COORDINATES.VRM_HIP_Y_OFFSET,
@@ -301,214 +300,166 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             }
         }
 
-        if (riggedPose.Spine) setRotation('spine', riggedPose.Spine);
-        if (riggedPose.Chest) setRotation('chest', riggedPose.Chest);
-        if (riggedPose.UpperChest) setRotation('upperChest', riggedPose.UpperChest);
-        if (riggedPose.Neck) setRotation('neck', riggedPose.Neck);
-        if (riggedPose.Head) setRotation('head', riggedPose.Head);
+        // Spine / Core (Spine, Chest, Neck, Head)
+        if (captureSettings.trackSpine) {
+            if (riggedPose.Spine) setRotation('spine', riggedPose.Spine);
+            if (riggedPose.Chest) setRotation('chest', riggedPose.Chest);
+            if (riggedPose.UpperChest) setRotation('upperChest', riggedPose.UpperChest);
+            if (riggedPose.Neck) setRotation('neck', riggedPose.Neck);
+            if (riggedPose.Head) setRotation('head', riggedPose.Head);
 
-        // Shoulders (Clavicles) - Dampen for stability
-        if (riggedPose.RightShoulder) {
-            const rot = { ...riggedPose.RightShoulder };
-            rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN; // Reduce shrugging intensity
-            setRotation('rightShoulder', rot);
+            // Shoulders (Grouped with Spine/Torso for now)
+            if (riggedPose.RightShoulder) {
+                const rot = { ...riggedPose.RightShoulder };
+                rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN;
+                setRotation('rightShoulder', rot);
+            }
+            if (riggedPose.LeftShoulder) {
+                const rot = { ...riggedPose.LeftShoulder };
+                rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN;
+                setRotation('leftShoulder', rot);
+            }
         }
-        if (riggedPose.LeftShoulder) {
-            const rot = { ...riggedPose.LeftShoulder };
-            rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN;
-            setRotation('leftShoulder', rot);
-        }
 
-        // Arms - Y-axis (twist) needs faster response
-        if (riggedPose.RightUpperArm) {
-            const rot = { ...riggedPose.RightUpperArm };
-            // Apply Y-axis rotation with higher lerp for faster response
-            if (rot.y !== undefined) {
-                const bone = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-                if (bone) {
-                    // Apply Y-axis with less smoothing for immediate twist feedback
-                    const yQuat = new THREE.Quaternion().setFromEuler(
-                        new THREE.Euler(0, rot.y, 0, 'XYZ')
-                    );
-                    bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
-
-                    // Apply X and Z normally
-                    const xzQuat = new THREE.Quaternion().setFromEuler(
-                        new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
-                    );
-                    bone.quaternion.multiply(xzQuat);
-                    appliedPose.rightUpperArm = rot;
+        // Upper Arms
+        if (captureSettings.trackUpperArm) {
+            if (riggedPose.RightUpperArm) {
+                const rot = { ...riggedPose.RightUpperArm };
+                if (rot.y !== undefined) {
+                    const bone = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+                    if (bone) {
+                        const yQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot.y, 0, 'XYZ'));
+                        bone.quaternion.slerp(yQuat, 0.95);
+                        const xzQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ'));
+                        bone.quaternion.multiply(xzQuat);
+                        appliedPose.rightUpperArm = rot;
+                    } else {
+                        setRotation('rightUpperArm', rot);
+                    }
                 } else {
                     setRotation('rightUpperArm', rot);
                 }
-            } else {
-                setRotation('rightUpperArm', rot);
             }
-        }
-        if (riggedPose.LeftUpperArm) {
-            const rot = { ...riggedPose.LeftUpperArm };
-            // Apply Y-axis rotation with higher lerp for faster response
-            if (rot.y !== undefined) {
-                const bone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-                if (bone) {
-                    // Apply Y-axis with less smoothing for immediate twist feedback
-                    const yQuat = new THREE.Quaternion().setFromEuler(
-                        new THREE.Euler(0, rot.y, 0, 'XYZ')
-                    );
-                    bone.quaternion.slerp(yQuat, 0.95); // Fast response for twist
-
-                    // Apply X and Z normally
-                    const xzQuat = new THREE.Quaternion().setFromEuler(
-                        new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ')
-                    );
-                    bone.quaternion.multiply(xzQuat);
-                    appliedPose.leftUpperArm = rot;
+            if (riggedPose.LeftUpperArm) {
+                const rot = { ...riggedPose.LeftUpperArm };
+                if (rot.y !== undefined) {
+                    const bone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+                    if (bone) {
+                        const yQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot.y, 0, 'XYZ'));
+                        bone.quaternion.slerp(yQuat, 0.95);
+                        const xzQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ'));
+                        bone.quaternion.multiply(xzQuat);
+                        appliedPose.leftUpperArm = rot;
+                    } else {
+                        setRotation('leftUpperArm', rot);
+                    }
                 } else {
                     setRotation('leftUpperArm', rot);
                 }
-            } else {
-                setRotation('leftUpperArm', rot);
             }
         }
 
-        if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
-        if (riggedPose.LeftLowerArm) setRotation('leftLowerArm', riggedPose.LeftLowerArm);
-        if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
-        if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
-
-        // Fingers - Use higher lerp for faster response (fingers need to move quickly)
-        const fingerLerp = 0.9; // Faster response than body (0.8) for finger articulation
-
-        // Fingers - Left Hand
-        if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal, fingerLerp);
-        if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate, fingerLerp);
-        if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal, fingerLerp);
-        if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal, fingerLerp);
-        if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate, fingerLerp);
-        if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal, fingerLerp);
-        if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal, fingerLerp);
-        if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate, fingerLerp);
-        if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal, fingerLerp);
-        if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal, fingerLerp);
-        if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate, fingerLerp);
-        if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal, fingerLerp);
-        if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal, fingerLerp);
-        if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate, fingerLerp);
-        if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal, fingerLerp);
-
-        // Fingers - Right Hand
-        if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal, fingerLerp);
-        if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate, fingerLerp);
-        if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal, fingerLerp);
-        if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal, fingerLerp);
-        if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate, fingerLerp);
-        if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal, fingerLerp);
-        if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal, fingerLerp);
-        if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate, fingerLerp);
-        if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal, fingerLerp);
-        if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal, fingerLerp);
-        if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate, fingerLerp);
-        if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal, fingerLerp);
-        if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal, fingerLerp);
-        if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate, fingerLerp);
-        if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal, fingerLerp);
-
-        // Legs (Conditional)
-        if (captureSettings?.captureLowerBody) {
-            if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
-            if (riggedPose.LeftUpperLeg) setRotation('leftUpperLeg', riggedPose.LeftUpperLeg);
-            if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
-            if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
+        // Lower Arms
+        if (captureSettings.trackLowerArm) {
+            if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
+            if (riggedPose.LeftLowerArm) setRotation('leftLowerArm', riggedPose.LeftLowerArm);
         }
 
-        // Face Expressions (BlendShapes)
-        if (riggedPose.Face) {
-            const versionStr = String(vrmRef.current?.meta?.metaVersion || '1');
-            const isVrm1 = versionStr === '1' || versionStr.startsWith('1.');
+        // Fingers (Hands)
+        if (captureSettings.trackFingers) {
+            if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
+            if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
 
-            if (isVrm1 && vrm.expressionManager) {
-                // VRM 1.0: Use expressionManager
-                const expressionManager = vrm.expressionManager;
+            const fingerLerp = 0.9;
+            // Left Hand Fingers
+            if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal, fingerLerp);
+            if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate, fingerLerp);
+            if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal, fingerLerp);
+            if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal, fingerLerp);
+            if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate, fingerLerp);
+            if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal, fingerLerp);
+            if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal, fingerLerp);
+            if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate, fingerLerp);
+            if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal, fingerLerp);
+            if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal, fingerLerp);
+            if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate, fingerLerp);
+            if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal, fingerLerp);
+            if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal, fingerLerp);
+            if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate, fingerLerp);
+            if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal, fingerLerp);
 
-                // Blink
-                if (riggedPose.Face.blinkLeft !== undefined) {
-                    expressionManager.setValue('blinkLeft', riggedPose.Face.blinkLeft);
-                }
-                if (riggedPose.Face.blinkRight !== undefined) {
-                    expressionManager.setValue('blinkRight', riggedPose.Face.blinkRight);
-                }
+            // Right Hand Fingers
+            if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal, fingerLerp);
+            if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate, fingerLerp);
+            if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal, fingerLerp);
+            if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal, fingerLerp);
+            if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate, fingerLerp);
+            if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal, fingerLerp);
+            if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal, fingerLerp);
+            if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate, fingerLerp);
+            if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal, fingerLerp);
+            if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal, fingerLerp);
+            if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate, fingerLerp);
+            if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal, fingerLerp);
+            if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal, fingerLerp);
+            if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate, fingerLerp);
+            if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal, fingerLerp);
+        }
 
-                // Mouth shapes (AIUEO)
-                if (riggedPose.Face.mouthA !== undefined) {
-                    expressionManager.setValue('aa', riggedPose.Face.mouthA);
-                }
-                if (riggedPose.Face.mouthI !== undefined) {
-                    expressionManager.setValue('ih', riggedPose.Face.mouthI);
-                }
-                if (riggedPose.Face.mouthU !== undefined) {
-                    expressionManager.setValue('ou', riggedPose.Face.mouthU);
-                }
-                if (riggedPose.Face.mouthE !== undefined) {
-                    expressionManager.setValue('ee', riggedPose.Face.mouthE);
-                }
-                if (riggedPose.Face.mouthO !== undefined) {
-                    expressionManager.setValue('oh', riggedPose.Face.mouthO);
-                }
+        // Legs
+        if (captureSettings.captureLowerBody) { // Keep master switch check if preferred, or remove. The user wants individual.
+            if (captureSettings.trackUpperLeg) {
+                if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
+                if (riggedPose.LeftUpperLeg) setRotation('leftUpperLeg', riggedPose.LeftUpperLeg);
+            }
+            if (captureSettings.trackLowerLeg) {
+                if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
+                if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
+            }
+            if (captureSettings.trackToes) {
+                if (riggedPose.RightToes) setRotation('rightToes', riggedPose.RightToes); // Kalidokit might not output this standardly but safe to add
+                if (riggedPose.LeftToes) setRotation('leftToes', riggedPose.LeftToes);
+            }
+        }
 
-                appliedPose.Face = riggedPose.Face;
-            } else if (vrm.blendShapeProxy) {
-                // VRM 0.x: Use blendShapeProxy
-                const blendShapeProxy = vrm.blendShapeProxy;
+        // Face Expressions & Eye Gaze
+        if (captureSettings.trackFace) {
+            if (riggedPose.Face) {
+                const versionStr = String(vrmRef.current?.meta?.metaVersion || '1');
+                const isVrm1 = versionStr === '1' || versionStr.startsWith('1.');
 
-                // Blink
-                if (riggedPose.Face.blinkLeft !== undefined) {
-                    blendShapeProxy.setValue('blink_l', riggedPose.Face.blinkLeft);
+                if (isVrm1 && vrm.expressionManager) {
+                    const expressionManager = vrm.expressionManager;
+                    if (riggedPose.Face.blinkLeft !== undefined) expressionManager.setValue('blinkLeft', riggedPose.Face.blinkLeft);
+                    if (riggedPose.Face.blinkRight !== undefined) expressionManager.setValue('blinkRight', riggedPose.Face.blinkRight);
+                    if (riggedPose.Face.mouthA !== undefined) expressionManager.setValue('aa', riggedPose.Face.mouthA);
+                    if (riggedPose.Face.mouthI !== undefined) expressionManager.setValue('ih', riggedPose.Face.mouthI);
+                    if (riggedPose.Face.mouthU !== undefined) expressionManager.setValue('ou', riggedPose.Face.mouthU);
+                    if (riggedPose.Face.mouthE !== undefined) expressionManager.setValue('ee', riggedPose.Face.mouthE);
+                    if (riggedPose.Face.mouthO !== undefined) expressionManager.setValue('oh', riggedPose.Face.mouthO);
+                } else if (vrm.blendShapeProxy) {
+                    const blendShapeProxy = vrm.blendShapeProxy;
+                    if (riggedPose.Face.blinkLeft !== undefined) blendShapeProxy.setValue('blink_l', riggedPose.Face.blinkLeft);
+                    if (riggedPose.Face.blinkRight !== undefined) blendShapeProxy.setValue('blink_r', riggedPose.Face.blinkRight);
+                    if (riggedPose.Face.mouthA !== undefined) blendShapeProxy.setValue('a', riggedPose.Face.mouthA);
+                    if (riggedPose.Face.mouthI !== undefined) blendShapeProxy.setValue('i', riggedPose.Face.mouthI);
+                    if (riggedPose.Face.mouthU !== undefined) blendShapeProxy.setValue('u', riggedPose.Face.mouthU);
+                    if (riggedPose.Face.mouthE !== undefined) blendShapeProxy.setValue('e', riggedPose.Face.mouthE);
+                    if (riggedPose.Face.mouthO !== undefined) blendShapeProxy.setValue('o', riggedPose.Face.mouthO);
                 }
-                if (riggedPose.Face.blinkRight !== undefined) {
-                    blendShapeProxy.setValue('blink_r', riggedPose.Face.blinkRight);
-                }
-
-                // Mouth shapes (AIUEO)
-                if (riggedPose.Face.mouthA !== undefined) {
-                    blendShapeProxy.setValue('a', riggedPose.Face.mouthA);
-                }
-                if (riggedPose.Face.mouthI !== undefined) {
-                    blendShapeProxy.setValue('i', riggedPose.Face.mouthI);
-                }
-                if (riggedPose.Face.mouthU !== undefined) {
-                    blendShapeProxy.setValue('u', riggedPose.Face.mouthU);
-                }
-                if (riggedPose.Face.mouthE !== undefined) {
-                    blendShapeProxy.setValue('e', riggedPose.Face.mouthE);
-                }
-                if (riggedPose.Face.mouthO !== undefined) {
-                    blendShapeProxy.setValue('o', riggedPose.Face.mouthO);
-                }
-
                 appliedPose.Face = riggedPose.Face;
             }
-        }
 
-        // Eye Gaze - Apply rotation to eye bones
-        if (riggedPose.Face && riggedPose.Face.eyeGazeX !== undefined && riggedPose.Face.eyeGazeY !== undefined) {
-            const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
-            const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
-
-            // Convert gaze values (-1 to 1) to rotation angles
-            // Horizontal: positive = look right, negative = look left
-            // Vertical: positive = look down, negative = look up
-            const gazeYaw = riggedPose.Face.eyeGazeX * 0.3;   // Max ~17 degrees
-            const gazePitch = riggedPose.Face.eyeGazeY * 0.2; // Max ~11 degrees
-
-            const eyeRotation = new THREE.Euler(gazePitch, gazeYaw, 0, 'XYZ');
-            const targetQuat = new THREE.Quaternion().setFromEuler(eyeRotation);
-
-            // Apply to both eyes with fast lerp for responsive eye movement
-            if (leftEye) {
-                leftEye.quaternion.slerp(targetQuat, 0.5);
-            }
-            if (rightEye) {
-                rightEye.quaternion.slerp(targetQuat, 0.5);
+            // Eye Gaze
+            if (riggedPose.Face && riggedPose.Face.eyeGazeX !== undefined && riggedPose.Face.eyeGazeY !== undefined) {
+                const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
+                const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
+                const gazeYaw = riggedPose.Face.eyeGazeX * 0.3;
+                const gazePitch = riggedPose.Face.eyeGazeY * 0.2;
+                const eyeRotation = new THREE.Euler(gazePitch, gazeYaw, 0, 'XYZ');
+                const targetQuat = new THREE.Quaternion().setFromEuler(eyeRotation);
+                if (leftEye) leftEye.quaternion.slerp(targetQuat, 0.5);
+                if (rightEye) rightEye.quaternion.slerp(targetQuat, 0.5);
             }
         }
 
@@ -652,25 +603,16 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                             rightHandLandmarks: results.rightHandLandmarks || null
                         };
 
-                        // Calculate arm and body rotations using refactored modules
-                        // Pass VRM version to handle coordinate system differences
-                        // Use ref to get latest version (avoiding closure issues)
-                        const currentVrmVersion = vrmVersionRef.current;
-                        console.log('[resultsHandler] Passing vrmVersion to calculateArmRotations:', currentVrmVersion);
-                        const armPose = calculateArmRotations(worldLandmarks, handLandmarksForArm, currentVrmVersion);
-                        const bodyPose = calculateBodyRotations(worldLandmarks);
-
-                        // Calculate leg rotations
-                        const legPose = calculateLegRotations(worldLandmarks);
-
-                        // Calculate hand rotations (finger bones)
+                        // Use the new consolidated solver
+                        const bodyRig = calculatePose(results, { imageSize: { width: 640, height: 480 } });
                         const handPose = calculateHandRotations(results);
-
-                        // Calculate face expressions (BlendShapes)
                         const facePose = results.faceLandmarks ? calculateFaceExpressions(results.faceLandmarks) : null;
 
-                        // Merge poses (including legs, hands, and face)
-                        riggedPose = mergeRiggedPose(armPose, bodyPose, legPose, handPose);
+                        // Merge everything
+                        riggedPose = {
+                            ...(bodyRig || {}),
+                            ...handPose
+                        };
 
                         // Add face expressions to riggedPose
                         if (facePose) {
@@ -780,6 +722,14 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             loader.load(url, (gltf) => {
                 if (isEffectDestroyed) return;
                 const vrm = gltf.userData.vrm;
+
+                if (!vrm) {
+                    console.error("Loaded file is not a valid VRM model (missing VRM extensions).");
+                    alert("The loaded file does not appear to be a valid VRM model. Please ensure the GLB file contains VRM data.");
+                    setLoading(false);
+                    return;
+                }
+
                 if (vrmRef.current) sceneRef.current.remove(vrmRef.current.scene);
 
                 // Detect VRM version
@@ -1105,8 +1055,8 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                             <button
                                 onClick={() => onDebugLoggingChange(!debugLogging)}
                                 className={`px-3 py-1 backdrop-blur-xl hover:bg-white/10 transition-colors text-[10px] font-bold rounded-full uppercase border flex items-center gap-2 pointer-events-auto ${debugLogging
-                                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
-                                        : 'bg-white/5 text-white/60 border-white/10 hover:text-cyan-400'
+                                    ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50'
+                                    : 'bg-white/5 text-white/60 border-white/10 hover:text-cyan-400'
                                     }`}
                                 title={debugLogging ? 'Disable Debug Logging' : 'Enable Debug Logging'}
                             >
