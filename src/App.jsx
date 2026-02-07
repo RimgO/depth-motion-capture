@@ -16,7 +16,16 @@ function App() {
     eyeGaze: false
   });
   const [captureSettings, setCaptureSettings] = useState({
-    captureLowerBody: true
+    captureLowerBody: true,
+    trackFace: true,
+    trackSpine: true,
+    trackHips: true,
+    trackUpperArm: true,
+    trackLowerArm: true,
+    trackFingers: true,
+    trackUpperLeg: true,
+    trackLowerLeg: true,
+    trackToes: true
   });
 
   // Mock AI Agent Labeling logic
@@ -122,8 +131,8 @@ function App() {
 
                 <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-white/10 rounded-xl hover:border-cyan-500/50 hover:bg-white/5 transition-all cursor-pointer group">
                   <User className="text-white/20 group-hover:text-cyan-400 mb-1" size={16} />
-                  <span className="text-[10px] text-white/40 group-hover:text-white/60">Upload VRM</span>
-                  <input type="file" accept=".vrm" className="hidden" onChange={handleVrmUpload} />
+                  <span className="text-[10px] text-white/40 group-hover:text-white/60">Upload VRM / GLB</span>
+                  <input type="file" accept=".vrm,.glb" className="hidden" onChange={handleVrmUpload} />
                 </label>
 
                 <button
@@ -143,14 +152,29 @@ function App() {
                 <Settings size={14} /> Capture Settings
               </h2>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-white/80">Lower Body Capture</span>
-                  <button
-                    onClick={() => setCaptureSettings(prev => ({ ...prev, captureLowerBody: !prev.captureLowerBody }))}
-                    className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings.captureLowerBody ? 'bg-cyan-500' : 'bg-white/10'}`}
-                  >
-                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${captureSettings.captureLowerBody ? 'left-4.5' : 'left-0.5'}`} style={{ left: captureSettings.captureLowerBody ? 'calc(100% - 14px)' : '2px' }} />
-                  </button>
+                <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider mb-2">Target Body Parts</div>
+                <div className="space-y-2 max-h-48 overflow-y-auto no-scrollbar pr-2">
+                  {[
+                    { key: 'trackFace', label: 'Face' },
+                    { key: 'trackSpine', label: 'Spine' },
+                    { key: 'trackHips', label: 'Hips' },
+                    { key: 'trackUpperArm', label: 'Upper Arm' },
+                    { key: 'trackLowerArm', label: 'Lower Arm' },
+                    { key: 'trackFingers', label: 'Fingers' },
+                    { key: 'trackUpperLeg', label: 'Upper Leg' },
+                    { key: 'trackLowerLeg', label: 'Lower Leg' },
+                    { key: 'trackToes', label: 'Toes' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="text-[11px] text-white/80">{label}</span>
+                      <button
+                        onClick={() => setCaptureSettings(prev => ({ ...prev, [key]: !prev[key] }))}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${captureSettings[key] ? 'bg-cyan-500' : 'bg-white/10'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{ left: captureSettings[key] ? 'calc(100% - 14px)' : '2px' }} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
                 <div className="pt-2 border-t border-white/10">
                   <div className="text-[10px] text-white/40 uppercase font-bold tracking-wider mb-2">Debug Logging</div>
@@ -197,8 +221,8 @@ function App() {
               <button
                 onClick={() => setIsRecording(!isRecording)}
                 className={`w-full font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${isRecording
-                    ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
-                    : 'bg-cyan-500 text-black shadow-cyan-500/30 hover:bg-cyan-400'
+                  ? 'bg-red-500 text-white shadow-red-500/30 animate-pulse'
+                  : 'bg-cyan-500 text-black shadow-cyan-500/30 hover:bg-cyan-400'
                   }`}
               >
                 <Activity size={18} /> {isRecording ? 'Stop Recording' : 'Start Recording'}
