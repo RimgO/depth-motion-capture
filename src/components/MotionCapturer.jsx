@@ -7,7 +7,7 @@ import { Holistic } from '@mediapipe/holistic';
 import * as Kalidokit from 'kalidokit';
 import { Camera } from '@mediapipe/camera_utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward, Eye, EyeOff } from 'lucide-react';
+import { Activity, Play, Pause, Clock, X, SkipBack, SkipForward, Eye, EyeOff, ExternalLink } from 'lucide-react';
 
 // Import refactored modules
 import { TIMING, SMOOTHING, COORDINATES } from '../constants/landmarks.js';
@@ -24,6 +24,7 @@ import { calculateAllMetrics } from '../utils/metricsCalculator.js';
 import { calculateHandRotations } from '../utils/handCalculations.js';
 import { calculateFaceExpressions } from '../utils/faceCalculations.js';
 import { useHolistic } from '../hooks/useHolistic.js';
+import { animateVRM } from '../utils/vrmAnimator.js'; // Import shared animator
 
 // --- GLOBAL MEDIAPIPE SINGLETON ---
 // This prevents multiple WASM initializations which cause the "Module.arguments" error.
@@ -114,6 +115,7 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
     const rendererRef = useRef(null);
     const propsRef = useRef({ onActionDetected, isRecording, captureSettings });
     const recordedDataRef = useRef([]);
+    const channelRef = useRef(null); // Channel for twin communication
 
     // Low-pass filters for each landmark
     const landmarkFiltersRef = useRef(null);
@@ -256,215 +258,8 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
         };
     }, []);
 
-    // --- SOURCE & CAPTURE LOGIC ---
-    const animateVRM = (vrm, riggedPose, captureSettings) => {
-        const appliedPose = {};
+    // --- ANIMATION LOGIC MOVED TO utils/vrmAnimator.js ---
 
-        const setRotation = (name, rotation, lerpAmount = SMOOTHING.VRM_BONE_SLERP) => {
-            if (!vrm || !vrm.humanoid) {
-                console.warn('[animateVRM] VRM or Humanoid missing');
-                return;
-            }
-            const bone = vrm.humanoid.getNormalizedBoneNode(name);
-            if (!bone) {
-                // Throttle this log
-                if (Math.random() < 0.001) console.warn(`[animateVRM] Bone not found: ${name}`);
-                return;
-            }
-            if (rotation) {
-                const targetQuat = new THREE.Quaternion().setFromEuler(
-                    new THREE.Euler(rotation.x, rotation.y, rotation.z, 'XYZ')
-                );
-                bone.quaternion.slerp(targetQuat, lerpAmount);
-                appliedPose[name] = rotation;
-
-                // Debug log for RightUpperArm to verify movement
-                if (name === 'rightUpperArm' && Math.random() < 0.01) {
-                    console.log(`[animateVRM] Rotating ${name}:`, { rotation, euler: bone.rotation, quat: bone.quaternion });
-                }
-            }
-        };
-
-        // Core Body - Hips
-        if (captureSettings.trackHips && riggedPose.Hips) {
-            const hips = vrm.humanoid.getNormalizedBoneNode('hips');
-            if (hips) {
-                hips.position.set(
-                    -riggedPose.Hips.worldPosition.x,
-                    riggedPose.Hips.worldPosition.y + COORDINATES.VRM_HIP_Y_OFFSET,
-                    -riggedPose.Hips.worldPosition.z
-                );
-                if (riggedPose.Hips.rotation) {
-                    setRotation('hips', riggedPose.Hips.rotation);
-                }
-            }
-        }
-
-        // Spine / Core (Spine, Chest, Neck, Head)
-        if (captureSettings.trackSpine) {
-            if (riggedPose.Spine) setRotation('spine', riggedPose.Spine);
-            if (riggedPose.Chest) setRotation('chest', riggedPose.Chest);
-            if (riggedPose.UpperChest) setRotation('upperChest', riggedPose.UpperChest);
-            if (riggedPose.Neck) setRotation('neck', riggedPose.Neck);
-            if (riggedPose.Head) setRotation('head', riggedPose.Head);
-
-            // Shoulders (Grouped with Spine/Torso for now)
-            if (riggedPose.RightShoulder) {
-                const rot = { ...riggedPose.RightShoulder };
-                rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN;
-                setRotation('rightShoulder', rot);
-            }
-            if (riggedPose.LeftShoulder) {
-                const rot = { ...riggedPose.LeftShoulder };
-                rot.z *= SMOOTHING.SHOULDER_Z_DAMPEN;
-                setRotation('leftShoulder', rot);
-            }
-        }
-
-        // Upper Arms
-        if (captureSettings.trackUpperArm) {
-            if (riggedPose.RightUpperArm) {
-                const rot = { ...riggedPose.RightUpperArm };
-                if (rot.y !== undefined) {
-                    const bone = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-                    if (bone) {
-                        const yQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot.y, 0, 'XYZ'));
-                        bone.quaternion.slerp(yQuat, 0.95);
-                        const xzQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ'));
-                        bone.quaternion.multiply(xzQuat);
-                        appliedPose.rightUpperArm = rot;
-                    } else {
-                        setRotation('rightUpperArm', rot);
-                    }
-                } else {
-                    setRotation('rightUpperArm', rot);
-                }
-            }
-            if (riggedPose.LeftUpperArm) {
-                const rot = { ...riggedPose.LeftUpperArm };
-                if (rot.y !== undefined) {
-                    const bone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-                    if (bone) {
-                        const yQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rot.y, 0, 'XYZ'));
-                        bone.quaternion.slerp(yQuat, 0.95);
-                        const xzQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot.x || 0, 0, rot.z || 0, 'XYZ'));
-                        bone.quaternion.multiply(xzQuat);
-                        appliedPose.leftUpperArm = rot;
-                    } else {
-                        setRotation('leftUpperArm', rot);
-                    }
-                } else {
-                    setRotation('leftUpperArm', rot);
-                }
-            }
-        }
-
-        // Lower Arms
-        if (captureSettings.trackLowerArm) {
-            if (riggedPose.RightLowerArm) setRotation('rightLowerArm', riggedPose.RightLowerArm);
-            if (riggedPose.LeftLowerArm) setRotation('leftLowerArm', riggedPose.LeftLowerArm);
-        }
-
-        // Fingers (Hands)
-        if (captureSettings.trackFingers) {
-            if (riggedPose.RightHand) setRotation('rightHand', riggedPose.RightHand);
-            if (riggedPose.LeftHand) setRotation('leftHand', riggedPose.LeftHand);
-
-            const fingerLerp = 0.9;
-            // Left Hand Fingers
-            if (riggedPose.leftThumbProximal) setRotation('leftThumbProximal', riggedPose.leftThumbProximal, fingerLerp);
-            if (riggedPose.leftThumbIntermediate) setRotation('leftThumbIntermediate', riggedPose.leftThumbIntermediate, fingerLerp);
-            if (riggedPose.leftThumbDistal) setRotation('leftThumbDistal', riggedPose.leftThumbDistal, fingerLerp);
-            if (riggedPose.leftIndexProximal) setRotation('leftIndexProximal', riggedPose.leftIndexProximal, fingerLerp);
-            if (riggedPose.leftIndexIntermediate) setRotation('leftIndexIntermediate', riggedPose.leftIndexIntermediate, fingerLerp);
-            if (riggedPose.leftIndexDistal) setRotation('leftIndexDistal', riggedPose.leftIndexDistal, fingerLerp);
-            if (riggedPose.leftMiddleProximal) setRotation('leftMiddleProximal', riggedPose.leftMiddleProximal, fingerLerp);
-            if (riggedPose.leftMiddleIntermediate) setRotation('leftMiddleIntermediate', riggedPose.leftMiddleIntermediate, fingerLerp);
-            if (riggedPose.leftMiddleDistal) setRotation('leftMiddleDistal', riggedPose.leftMiddleDistal, fingerLerp);
-            if (riggedPose.leftRingProximal) setRotation('leftRingProximal', riggedPose.leftRingProximal, fingerLerp);
-            if (riggedPose.leftRingIntermediate) setRotation('leftRingIntermediate', riggedPose.leftRingIntermediate, fingerLerp);
-            if (riggedPose.leftRingDistal) setRotation('leftRingDistal', riggedPose.leftRingDistal, fingerLerp);
-            if (riggedPose.leftLittleProximal) setRotation('leftLittleProximal', riggedPose.leftLittleProximal, fingerLerp);
-            if (riggedPose.leftLittleIntermediate) setRotation('leftLittleIntermediate', riggedPose.leftLittleIntermediate, fingerLerp);
-            if (riggedPose.leftLittleDistal) setRotation('leftLittleDistal', riggedPose.leftLittleDistal, fingerLerp);
-
-            // Right Hand Fingers
-            if (riggedPose.rightThumbProximal) setRotation('rightThumbProximal', riggedPose.rightThumbProximal, fingerLerp);
-            if (riggedPose.rightThumbIntermediate) setRotation('rightThumbIntermediate', riggedPose.rightThumbIntermediate, fingerLerp);
-            if (riggedPose.rightThumbDistal) setRotation('rightThumbDistal', riggedPose.rightThumbDistal, fingerLerp);
-            if (riggedPose.rightIndexProximal) setRotation('rightIndexProximal', riggedPose.rightIndexProximal, fingerLerp);
-            if (riggedPose.rightIndexIntermediate) setRotation('rightIndexIntermediate', riggedPose.rightIndexIntermediate, fingerLerp);
-            if (riggedPose.rightIndexDistal) setRotation('rightIndexDistal', riggedPose.rightIndexDistal, fingerLerp);
-            if (riggedPose.rightMiddleProximal) setRotation('rightMiddleProximal', riggedPose.rightMiddleProximal, fingerLerp);
-            if (riggedPose.rightMiddleIntermediate) setRotation('rightMiddleIntermediate', riggedPose.rightMiddleIntermediate, fingerLerp);
-            if (riggedPose.rightMiddleDistal) setRotation('rightMiddleDistal', riggedPose.rightMiddleDistal, fingerLerp);
-            if (riggedPose.rightRingProximal) setRotation('rightRingProximal', riggedPose.rightRingProximal, fingerLerp);
-            if (riggedPose.rightRingIntermediate) setRotation('rightRingIntermediate', riggedPose.rightRingIntermediate, fingerLerp);
-            if (riggedPose.rightRingDistal) setRotation('rightRingDistal', riggedPose.rightRingDistal, fingerLerp);
-            if (riggedPose.rightLittleProximal) setRotation('rightLittleProximal', riggedPose.rightLittleProximal, fingerLerp);
-            if (riggedPose.rightLittleIntermediate) setRotation('rightLittleIntermediate', riggedPose.rightLittleIntermediate, fingerLerp);
-            if (riggedPose.rightLittleDistal) setRotation('rightLittleDistal', riggedPose.rightLittleDistal, fingerLerp);
-        }
-
-        // Legs
-        if (captureSettings.captureLowerBody) { // Keep master switch check if preferred, or remove. The user wants individual.
-            if (captureSettings.trackUpperLeg) {
-                if (riggedPose.RightUpperLeg) setRotation('rightUpperLeg', riggedPose.RightUpperLeg);
-                if (riggedPose.LeftUpperLeg) setRotation('leftUpperLeg', riggedPose.LeftUpperLeg);
-            }
-            if (captureSettings.trackLowerLeg) {
-                if (riggedPose.RightLowerLeg) setRotation('rightLowerLeg', riggedPose.RightLowerLeg);
-                if (riggedPose.LeftLowerLeg) setRotation('leftLowerLeg', riggedPose.LeftLowerLeg);
-            }
-            if (captureSettings.trackToes) {
-                if (riggedPose.RightToes) setRotation('rightToes', riggedPose.RightToes); // Kalidokit might not output this standardly but safe to add
-                if (riggedPose.LeftToes) setRotation('leftToes', riggedPose.LeftToes);
-            }
-        }
-
-        // Face Expressions & Eye Gaze
-        if (captureSettings.trackFace) {
-            if (riggedPose.Face) {
-                const versionStr = String(vrmRef.current?.meta?.metaVersion || '1');
-                const isVrm1 = versionStr === '1' || versionStr.startsWith('1.');
-
-                if (isVrm1 && vrm.expressionManager) {
-                    const expressionManager = vrm.expressionManager;
-                    if (riggedPose.Face.blinkLeft !== undefined) expressionManager.setValue('blinkLeft', riggedPose.Face.blinkLeft);
-                    if (riggedPose.Face.blinkRight !== undefined) expressionManager.setValue('blinkRight', riggedPose.Face.blinkRight);
-                    if (riggedPose.Face.mouthA !== undefined) expressionManager.setValue('aa', riggedPose.Face.mouthA);
-                    if (riggedPose.Face.mouthI !== undefined) expressionManager.setValue('ih', riggedPose.Face.mouthI);
-                    if (riggedPose.Face.mouthU !== undefined) expressionManager.setValue('ou', riggedPose.Face.mouthU);
-                    if (riggedPose.Face.mouthE !== undefined) expressionManager.setValue('ee', riggedPose.Face.mouthE);
-                    if (riggedPose.Face.mouthO !== undefined) expressionManager.setValue('oh', riggedPose.Face.mouthO);
-                } else if (vrm.blendShapeProxy) {
-                    const blendShapeProxy = vrm.blendShapeProxy;
-                    if (riggedPose.Face.blinkLeft !== undefined) blendShapeProxy.setValue('blink_l', riggedPose.Face.blinkLeft);
-                    if (riggedPose.Face.blinkRight !== undefined) blendShapeProxy.setValue('blink_r', riggedPose.Face.blinkRight);
-                    if (riggedPose.Face.mouthA !== undefined) blendShapeProxy.setValue('a', riggedPose.Face.mouthA);
-                    if (riggedPose.Face.mouthI !== undefined) blendShapeProxy.setValue('i', riggedPose.Face.mouthI);
-                    if (riggedPose.Face.mouthU !== undefined) blendShapeProxy.setValue('u', riggedPose.Face.mouthU);
-                    if (riggedPose.Face.mouthE !== undefined) blendShapeProxy.setValue('e', riggedPose.Face.mouthE);
-                    if (riggedPose.Face.mouthO !== undefined) blendShapeProxy.setValue('o', riggedPose.Face.mouthO);
-                }
-                appliedPose.Face = riggedPose.Face;
-            }
-
-            // Eye Gaze
-            if (riggedPose.Face && riggedPose.Face.eyeGazeX !== undefined && riggedPose.Face.eyeGazeY !== undefined) {
-                const leftEye = vrm.humanoid.getNormalizedBoneNode('leftEye');
-                const rightEye = vrm.humanoid.getNormalizedBoneNode('rightEye');
-                const gazeYaw = riggedPose.Face.eyeGazeX * 0.3;
-                const gazePitch = riggedPose.Face.eyeGazeY * 0.2;
-                const eyeRotation = new THREE.Euler(gazePitch, gazeYaw, 0, 'XYZ');
-                const targetQuat = new THREE.Quaternion().setFromEuler(eyeRotation);
-                if (leftEye) leftEye.quaternion.slerp(targetQuat, 0.5);
-                if (rightEye) rightEye.quaternion.slerp(targetQuat, 0.5);
-            }
-        }
-
-        return appliedPose;
-    };
 
     // --- SOURCE & CAPTURE LOGIC ---
     useEffect(() => {
@@ -645,7 +440,20 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                         riggedPose = applyTemporalSmoothing(riggedPose, previousRiggedPoseRef.current);
                         previousRiggedPoseRef.current = JSON.parse(JSON.stringify(riggedPose)); // Deep copy
 
+
                         const finalPose = animateVRM(vrm, riggedPose, propsRef.current.captureSettings);
+
+                        // Broadcast to Twin Window
+                        if (channelRef.current) {
+                            channelRef.current.postMessage({
+                                type: 'POSE_UPDATE',
+                                payload: {
+                                    pose: riggedPose,
+                                    settings: propsRef.current.captureSettings
+                                }
+                            });
+                        }
+
                         vrm._lastRigTime = Date.now();
 
                         // Record Data (Skip first 1s)
@@ -709,6 +517,86 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
             activeResultsCallback = null;
         };
     }, []);
+
+    // --- BROADCAST CHANNEL SETUP ---
+    useEffect(() => {
+        const channel = new BroadcastChannel('motion_capture_channel');
+        channelRef.current = channel;
+
+        const sendVRM = async (url) => {
+            if (!url) return;
+            if (url.startsWith('blob:')) {
+                try {
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    channel.postMessage({
+                        type: 'LOAD_VRM_BLOB',
+                        payload: { blobData: blob }
+                    });
+                } catch (e) {
+                    console.error('Failed to send blob VRM to twin', e);
+                }
+            } else {
+                channel.postMessage({
+                    type: 'LOAD_VRM_URL',
+                    payload: { url }
+                });
+            }
+        };
+
+        channel.onmessage = (event) => {
+            if (event.data.type === 'TWIN_READY') {
+                // Determine current URL from props (it's passed as vrmUrl)
+                // We know 'vrmUrl' is available in the component scope
+                // But it's a prop/state. We should use the latest value.
+                // However, this effect runs on mount. We need to access the ref or dependency.
+            }
+        };
+
+        return () => {
+            channel.close();
+        };
+    }, []);
+
+    // Effect to handle sending VRM when URL changes or Twin requests it
+    useEffect(() => {
+        const channel = channelRef.current;
+        if (!channel || !vrmUrl) return;
+
+        const sendCurrentVRM = async () => {
+            if (vrmUrl.startsWith('blob:')) {
+                try {
+                    const response = await fetch(vrmUrl);
+                    const blob = await response.blob();
+                    if (channelRef.current) {
+                        channelRef.current.postMessage({
+                            type: 'LOAD_VRM_BLOB',
+                            payload: { blobData: blob }
+                        });
+                    }
+                } catch (e) { console.error(e); }
+            } else {
+                channel.postMessage({
+                    type: 'LOAD_VRM_URL',
+                    payload: { url: vrmUrl }
+                });
+            }
+        };
+
+        // Send immediately on change
+        sendCurrentVRM();
+
+        // Also listen for requests (re-binding listener if needed, but easier to use ref for logic)
+        const handler = (event) => {
+            if (event.data.type === 'TWIN_READY') {
+                sendCurrentVRM();
+            }
+        };
+        channel.addEventListener('message', handler);
+        return () => channel.removeEventListener('message', handler);
+    }, [vrmUrl]);
+
+
 
     // VRM Loading Effect
     useEffect(() => {
@@ -995,18 +883,29 @@ const MotionCapturer = ({ useScreenCapture, vrmUrl, onActionDetected, isRecordin
                 <canvas ref={canvasRef} className="w-full h-full" />
 
                 {hasVrm && (
-                    <div className="absolute top-6 left-6 z-30 flex flex-col gap-2">
-                        <div className="px-3 py-1 bg-blue-600/20 backdrop-blur-md border border-blue-500/30 text-[10px] font-bold text-blue-400 rounded-full uppercase tracking-widest shadow-lg w-fit">
-                            Digital Twin Active
+                    <>
+                        <div className="absolute top-6 left-6 z-30 flex flex-col gap-2">
+                            <div className="px-3 py-1 bg-blue-600/20 backdrop-blur-md border border-blue-500/30 text-[10px] font-bold text-blue-400 rounded-full uppercase tracking-widest shadow-lg w-fit">
+                                Digital Twin Active
+                            </div>
+                            <div className="px-3 py-1 bg-white/10 backdrop-blur-md border border-white/5 text-[10px] font-bold text-white/60 rounded-full uppercase tracking-widest shadow-lg w-fit flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${metrics.confidence > 80 ? 'bg-green-500' : metrics.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                                Confidence: {metrics.confidence}%
+                            </div>
+                            <div className="px-2 py-1 bg-black/40 backdrop-blur-sm border border-white/5 text-[8px] text-white/40 rounded-lg uppercase tracking-tighter w-fit">
+                                Drag to Rotate • Right Click to Pan • Scroll to Zoom
+                            </div>
                         </div>
-                        <div className="px-3 py-1 bg-white/10 backdrop-blur-md border border-white/5 text-[10px] font-bold text-white/60 rounded-full uppercase tracking-widest shadow-lg w-fit flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${metrics.confidence > 80 ? 'bg-green-500' : metrics.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`} />
-                            Confidence: {metrics.confidence}%
+                        <div className="absolute top-6 right-6 z-30 pointer-events-auto">
+                            <button
+                                onClick={() => window.open(window.location.href + '?mode=twin', 'TwinWindow', 'width=800,height=600')}
+                                className="bg-white/10 hover:bg-cyan-500/20 text-white/60 hover:text-cyan-400 border border-white/10 hover:border-cyan-500/50 rounded-xl p-2.5 backdrop-blur-md transition-all shadow-lg"
+                                title="Pop Out Digital Twin"
+                            >
+                                <ExternalLink size={18} />
+                            </button>
                         </div>
-                        <div className="px-2 py-1 bg-black/40 backdrop-blur-sm border border-white/5 text-[8px] text-white/40 rounded-lg uppercase tracking-tighter w-fit">
-                            Drag to Rotate • Right Click to Pan • Scroll to Zoom
-                        </div>
-                    </div>
+                    </>
                 )}
             </motion.div>
 
