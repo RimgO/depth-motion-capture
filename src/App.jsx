@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import MotionCapturer from './components/MotionCapturer';
+import TwinViewer from './components/TwinViewer';
 import { Activity, Brain, User, Upload, Settings, Info, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
+  const [isTwinMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('mode') === 'twin';
+    }
+    return false;
+  });
+
+  if (isTwinMode) {
+    return <TwinViewer />;
+  }
+
   const [vrmUrl, setVrmUrl] = useState(null);
   const [useScreenCapture, setUseScreenCapture] = useState(false);
   const [detectedAction, setDetectedAction] = useState("Observing...");
