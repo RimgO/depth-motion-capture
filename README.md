@@ -1,35 +1,47 @@
 # Depth Motion Capture
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![React](https://img.shields.io/badge/React-18-blue.svg)](https://reactjs.org/)
+[![Three.js](https://img.shields.io/badge/Three.js-r167-black.svg)](https://threejs.org/)
+
 リアルタイム3Dモーションキャプチャシステム - MediaPipe Holistic + Three.js + VRM
 
 ## 概要
 
-Webブラウザ上で動作する高精度なモーションキャプチャシステムです。Webカメラや画面キャプチャから人体の姿勢・顔表情・手指の動きをリアルタイムに検出し、VRMアバターに反映させます。
+Webブラウザ上で動作するプロフェッショナルなモーションキャプチャシステムです。Webカメラや画面キャプチャから人体の姿勢・顔表情・手指の動きをリアルタイムに検出し、VRMアバターに高精度で反映させます。
 
 ## 主な機能
 
-### 入力ソース
+### 1. 多彩な入力ソース
 - **Webカメラ**: リアルタイム自撮りモーションキャプチャ
-- **画面キャプチャ**: 他のアプリケーションウィンドウの映像をキャプチャ（動画再生アプリ、ビデオ会議ツールなど）
+- **画面キャプチャ**: ブラウザの別タブ、デスクトップウィンドウ、動画再生プレイヤーなどの映像を直接キャプチャしてトラッキング可能。
 
-### モーションキャプチャ
-- **全身トラッキング**: MediaPipe Holisticによる33点の3D姿勢推定
-- **顔表情**: 468点のフェイスランドマーク + 虹彩トラッキング
-- **手指追跡**: 左右の手それぞれ21点の3Dトラッキング
-- **VRMアバター連動**: リアルタイムでアバターに反映
+### 2. 高精度モーションリギング (Refined Rigging)
+- **独自の上腕ねじれ補正**: 腕を下げた際の関節の歪みを解消するY/XZ分離回転アルゴリズムを搭載。
+- **手指の自然な追従 (Enhanced Finger Tracking)**: Holistic `modelComplexity: 2` の採用と、VRM 1.0のボーン構造に最適化されたマッピングにより、複雑な手指の動きを遅延なく再現。
+- **視線トラッキング**: 虹彩の動きを検出し、アバターの視線にリアルタイムに反映。
+- **MediaPipe `za` (World Landmarks) 活用**: 従来の正規化座標に加え、実際のメートル単位の3D座標（World Landmarks）を使用することで、奥行きのある自然な動きを実現。
 
-### 記録・分析
-- **モーション記録**: JSON形式でモーションデータを保存
-- **リアルタイムメトリクス**: 信頼度、レイテンシ、安定性の可視化
-- **デバッグパネル**: 詳細なログとランドマーク表示
+### 3. Integrated Debug Skeleton
+- **3D 統合デバッグ表示**: 体本体のスケルトンに詳細な手指のランドマーク（21点）を手首で動的に結合。
+- **リアルタイム・フィードバック**: アバターのボーン位置とMediaPipeの推定位置を同時に視覚化し、リギングの整合性を即座に確認可能。
+- **ノイズ除去**: 検出漏れ時に発生する座標の飛び（原点回帰）を自動的にフィルタリング。
+
+### 4. Twin Mode (遠隔同期)
+- **セパレート・レンダリング**: `BroadcastChannel API` を使用し、キャプチャ用のメインウィンドウとは別のウィンドウでアバターをフルスクリーン表示可能。OBS等の配信ツールでの取り込みに最適です。
+
+### 4. AI Monitoring & Analysis
+- **AIポーズ判定**: 現在のポーズやアクション（挙手、Tポーズ、スクワット等）をAIがリアルタイムにラベル付け。
+- **メトリクス可視化**: トラッキングの信頼度、推論レイテンシ、フレーム安定性をグラフでモニタリング。
+- **モーション記録**: JSON形式でキャプチャデータを保存し、後で再利用可能。
 
 ## 技術スタック
 
-- **フレームワーク**: React 18 + Vite
-- **3Dレンダリング**: Three.js + @pixiv/three-vrm
+- **Core**: React 18 + Vite
+- **3D Engine**: Three.js + @pixiv/three-vrm
 - **AI/ML**: MediaPipe Holistic (WASM)
-- **モーションリギング**: Kalidokit
-- **UI**: Tailwind CSS + Framer Motion
+- **Rigging Solver**: Kalidokit + Custom Math Logic
+- **UI**: Tailwind CSS + Framer Motion + Lucide React
 
 ## セットアップ
 
@@ -46,48 +58,20 @@ npm run build
 
 ## 使い方
 
-1. **入力ソースの選択**
-   - サイドバーの「Webcam Feed」をクリック: Webカメラを使用
-   - 「Screen Capture」をクリック: 画面共有（他のウィンドウをキャプチャ）
+1. **ソースメディアの選択**
+   - 「Webcam Feed」: Webカメラを使用します。
+   - 「Screen Capture」: 画面共有ダイアログからキャプチャしたい対象を選択します。
 
 2. **VRMアバターの読み込み**
-   - 「Upload VRM」から.vrmファイルをアップロード
-   - または「Load Test Avatar」でサンプルアバターを読み込み
+   - 「Upload VRM / GLB」から自分のモデルをアップロード。
+   - または「Load Test Avatar」で即座に動作確認。
 
-3. **モーション記録**
-   - 「Start Recording」でモーションデータの記録を開始
-   - 「Stop Recording」で記録を停止し、JSONファイルをダウンロード
+3. **Twin Mode の起動**
+   - URLに `?mode=twin` を付けて開く（またはメイン画面のリンクから）ことで、レンダリング専用ウィンドウが立ち上がります。
 
-4. **設定調整**
-   - **Lower Body Capture**: 下半身トラッキングのON/OFF
-   - **Debug Logging**: デバッグログの表示レベル調整
-
-## 画面キャプチャの活用例
-
-画面キャプチャ機能を使うと、様々なコンテンツからモーションキャプチャが可能です:
-
-- YouTube/ニコニコ動画などの動画サイト
-- Zoom/Google Meetなどのビデオ会議
-- ローカル動画プレイヤー
-- ゲーム画面
-- 他のWebアプリケーション
-
-**手順:**
-1. 「Screen Capture」ボタンをクリック
-2. ブラウザのダイアログで共有したいウィンドウ/タブを選択
-3. リアルタイムでモーションキャプチャが開始されます
-
-## デバッグ機能
-
-- **Neural Panel**: リアルタイムメトリクスと2Dランドマーク表示
-- **Analysis Log**: AI判定の履歴表示
-- **Stability Graph**: トラッキング安定性の時系列グラフ
-
-## ブラウザ対応
-
-- Chrome/Edge 94+（推奨）
-- Firefox 90+
-- Safari 15+（一部機能制限あり）
+4. **記録とデバッグ**
+   - 「Start Recording」でモーションデータの保存。
+   - 「Debug Logging」を有効にすると、コンソールおよびHUDに詳細なAI推論データが表示されます。
 
 ## ライセンス
 
@@ -99,3 +83,4 @@ MIT License
 - [Three.js](https://threejs.org/)
 - [three-vrm](https://github.com/pixiv/three-vrm)
 - [Kalidokit](https://github.com/yeemachine/kalidokit)
+- [aituber-kit](https://github.com/aicu-ai/aituber-kit) - 本プロジェクトのロジックが統合されているメインプロジェクト
